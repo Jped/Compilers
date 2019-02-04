@@ -1,0 +1,175 @@
+./test/chars.c 1 STRING \0\0\0  
+ ./test/chars.c 2 STRING \a\0\n  
+ ./test/chars.c 3 CHARLIT \'
+./test/chars.c 4 STRING \\\"\\\'  
+ ./test/chars.c 5 STRING \0018\377\001\256Z  
+ ./test/chars.c 6 CHARLIT a
+./test/chars.c 7 STRING AB\377g  
+ ./test/chars.c 8 STRING WORD?  
+ ./test/chars.c 9 STRING \b\f\n\r\t\v  
+ ./test/kw.c 1 AUTO
+./test/kw.c 1 ;
+./test/kw.c 2 BREAK
+./test/kw.c 2 ;
+./test/kw.c 3 CASE
+./test/kw.c 3 ;
+./test/kw.c 4 CHAR
+./test/kw.c 4 ;
+./test/kw.c 5 CONST
+./test/kw.c 5 ;
+./test/kw.c 6 CONTINUE
+./test/kw.c 6 ;
+./test/kw.c 7 DEFAULT
+./test/kw.c 7 ;
+./test/kw.c 8 DO
+./test/kw.c 8 ;
+./test/kw.c 9 DOUBLE
+./test/kw.c 9 ;
+./test/kw.c 10 ELSE
+./test/kw.c 10 ;
+./test/kw.c 11 ENUM
+./test/kw.c 11 ;
+./test/kw.c 12 EXTERN
+./test/kw.c 12 ;
+./test/kw.c 13 FLOAT
+./test/kw.c 13 ;
+./test/kw.c 14 FOR
+./test/kw.c 14 ;
+./test/kw.c 15 GOTO
+./test/kw.c 15 ;
+./test/kw.c 16 IF
+./test/kw.c 16 ;
+./test/kw.c 17 INLINE
+./test/kw.c 17 ;
+./test/kw.c 18 INT
+./test/kw.c 18 ;
+./test/kw.c 19 LONG
+./test/kw.c 19 ;
+./test/kw.c 20 REGISTER
+./test/kw.c 20 ;
+./test/kw.c 21 RESTRICT
+./test/kw.c 21 ;
+./test/kw.c 22 RETURN
+./test/kw.c 22 ;
+./test/kw.c 23 SHORT
+./test/kw.c 23 ;
+./test/kw.c 24 SIGNED
+./test/kw.c 24 ;
+./test/kw.c 25 SIZEOF
+./test/kw.c 25 ;
+./test/kw.c 26 STATIC
+./test/kw.c 26 ;
+./test/kw.c 27 STRUCT
+./test/kw.c 27 ;
+./test/kw.c 28 SWITCH
+./test/kw.c 28 ;
+./test/kw.c 29 TYPEDEF
+./test/kw.c 29 ;
+./test/kw.c 30 UNION
+./test/kw.c 30 ;
+./test/kw.c 31 UNSIGNED
+./test/kw.c 31 ;
+./test/kw.c 32 VOID
+./test/kw.c 32 ;
+./test/kw.c 33 VOLATILE
+./test/kw.c 33 ;
+./test/kw.c 34 WHILE
+./test/kw.c 34 ;
+./test/kw.c 35 _BOOL
+./test/kw.c 35 ;
+./test/kw.c 36 _COMPLEX
+./test/kw.c 36 ;
+./test/kw.c 37 _IMAGINARY
+./test/kw.c 37 ;
+./test/kw.c 38 IDENT automatic
+./test/kw.c 38 ;
+./test/kw.c 39 NUMBER INTEGER 0 INT
+./test/kw.c 39 IDENT ident
+./test/kw.c 39 ;
+./test/num.c 1 +
+./test/num.c 1 NUMBER INTEGER 1 INT
+./test/num.c 2 NUMBER INTEGER 0 INT
+./test/num.c 3 NUMBER INTEGER 0 INT
+./test/num.c 4 NUMBER INTEGER 0 LONG
+./test/num.c 5 NUMBER REAL 0.100000 DOUBLE
+./test/num.c 6 -
+./test/num.c 6 NUMBER INTEGER 1 INT
+./test/num.c 7 NUMBER INTEGER 1 UNSIGNED,INT
+./test/num.c 8 NUMBER INTEGER 63 UNSIGNED,LONGLONG
+./test/num.c 9 NUMBER INTEGER 431 LONG
+./test/num.c 10 NUMBER INTEGER 30 INT
+./test/num.c 10 IDENT ZERO001
+./test/num.c 11 NUMBER REAL 1e+08 FLOAT
+./test/num.c 12 NUMBER INTEGER 256 INT
+./test/num.c 12 IDENT p
+./test/num.c 12 -
+./test/num.c 12 NUMBER INTEGER 7 INT
+./test/num.c 13 NUMBER INTEGER 4110 INT
+./test/num.c 13 -
+./test/num.c 13 NUMBER INTEGER 2 INT
+./test/num.c 14 ELLIPSIS
+./test/num.c 14 NUMBER REAL 0.800000 DOUBLE
+./test/num.c 15 NUMBER INTEGER 7 INT
+./test/num.c 16 NUMBER INTEGER 63 INT
+./test/num.c 16 NUMBER INTEGER 800 INT
+./test/num.c 17 NUMBER REAL 1700000000.000000 DOUBLE
+./test/num.c 18 NUMBER INTEGER 15 INT
+./test/num.c 18 IDENT f
+./test/num.c 19 NUMBER INTEGER 15 LONG
+./test/num.c 20 NUMBER REAL 15.000000 DOUBLE
+./test/num.c 20 IDENT L
+./test/op.c 1 [
+./test/op.c 1 IDENT brackets
+./test/op.c 1 ]
+./test/op.c 2 {
+./test/op.c 2 IDENT braces
+./test/op.c 2 }
+./test/op.c 3 (
+./test/op.c 3 IDENT paren
+./test/op.c 3 )
+./test/op.c 4 .
+./test/op.c 5 ARROW
+./test/op.c 6 IDENT a
+./test/op.c 6 PLUSPLUS
+./test/op.c 6 +
+./test/op.c 6 IDENT b
+./test/op.c 6 MINUSMINUS
+./test/op.c 6 -
+./test/op.c 6 IDENT c
+./test/op.c 7 IDENT a
+./test/op.c 7 LOGAND
+./test/op.c 7 &
+./test/op.c 7 IDENT b
+./test/op.c 8 IDENT d
+./test/op.c 8 *
+./test/op.c 8 *
+./test/op.c 8 IDENT e
+./test/op.c 9 ~
+./test/op.c 10 !
+./test/op.c 11 /
+./test/op.c 12 NOTEQ
+./test/op.c 13 %
+./test/op.c 14 MODEQ
+./test/op.c 15 SHLEQ
+./test/op.c 15 SHL
+./test/op.c 15 IDENT shifts
+./test/op.c 15 SHR
+./test/op.c 15 SHREQ
+./test/op.c 16 <
+./test/op.c 16 IDENT gtlt
+./test/op.c 16 >
+./test/op.c 17 ^
+./test/op.c 18 |
+./test/op.c 19 LOGOR
+./test/op.c 20 ?
+./test/op.c 20 :
+./test/op.c 20 ;
+./test/op.c 20 ELLIPSIS
+./test/op.c 21 PLUSEQ
+./test/op.c 21 MINUSEQ
+./test/op.c 21 DIVEQ
+./test/op.c 21 TIMESEQ
+./test/op.c 21 XOREQ
+./test/op.c 21 OREQ
+./test/op.c 21 ANDEQ
+./test/op.c 22 ,

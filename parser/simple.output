@@ -1,0 +1,153 @@
+Terminals unused in grammar
+
+   OP
+   KEYWD
+   CHAR
+   STRING
+   FLOAT
+   DOUBLE
+   FILEN
+   ARROW
+   PLUSPLUS
+
+
+Grammar
+
+    0 $accept: s $end
+
+    1 s: %empty
+    2  | s exp EOL
+    3  | s EOL
+
+    4 exp: IDENT
+    5    | IDENT '+' IDENT
+    6    | IDENT '=' IDENT
+    7    | INT
+
+
+Terminals, with rules where they appear
+
+$end (0) 0
+'+' (43) 5
+'=' (61) 6
+error (256)
+INT (258) 7
+OP (259)
+IDENT (260) 4 5 6
+KEYWD (261)
+CHAR (262)
+STRING (263)
+FLOAT (264)
+DOUBLE (265)
+FILEN (266)
+ARROW (267)
+PLUSPLUS (268)
+EOL (269) 2 3
+
+
+Nonterminals, with rules where they appear
+
+$accept (17)
+    on left: 0
+s (18)
+    on left: 1 2 3, on right: 0 2 3
+exp (19)
+    on left: 4 5 6 7, on right: 2
+
+
+State 0
+
+    0 $accept: . s $end
+
+    $default  reduce using rule 1 (s)
+
+    s  go to state 1
+
+
+State 1
+
+    0 $accept: s . $end
+    2 s: s . exp EOL
+    3  | s . EOL
+
+    $end   shift, and go to state 2
+    INT    shift, and go to state 3
+    IDENT  shift, and go to state 4
+    EOL    shift, and go to state 5
+
+    exp  go to state 6
+
+
+State 2
+
+    0 $accept: s $end .
+
+    $default  accept
+
+
+State 3
+
+    7 exp: INT .
+
+    $default  reduce using rule 7 (exp)
+
+
+State 4
+
+    4 exp: IDENT .  [EOL]
+    5    | IDENT . '+' IDENT
+    6    | IDENT . '=' IDENT
+
+    '+'  shift, and go to state 7
+    '='  shift, and go to state 8
+
+    $default  reduce using rule 4 (exp)
+
+
+State 5
+
+    3 s: s EOL .
+
+    $default  reduce using rule 3 (s)
+
+
+State 6
+
+    2 s: s exp . EOL
+
+    EOL  shift, and go to state 9
+
+
+State 7
+
+    5 exp: IDENT '+' . IDENT
+
+    IDENT  shift, and go to state 10
+
+
+State 8
+
+    6 exp: IDENT '=' . IDENT
+
+    IDENT  shift, and go to state 11
+
+
+State 9
+
+    2 s: s exp EOL .
+
+    $default  reduce using rule 2 (s)
+
+
+State 10
+
+    5 exp: IDENT '+' IDENT .
+
+    $default  reduce using rule 5 (exp)
+
+
+State 11
+
+    6 exp: IDENT '=' IDENT .
+
+    $default  reduce using rule 6 (exp)
