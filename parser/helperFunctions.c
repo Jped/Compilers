@@ -4,7 +4,7 @@
 # include <string.h>
 # include "parser.h"
 # include "cparser.tab.h"
-
+# include "types.h"
 	
 struct astnode * 
 newTerop(int nodetype, int op, struct astnode *l, struct astnode *c, struct astnode *r)
@@ -307,7 +307,7 @@ findSymbol(struct scope *lookingScope, char * name, int nameSpace)
 }
 
 void 
-enterNewVariable(struct scope *enteringScope, struct init * i, struct ast_node * specs, int nameSpace, struct astnode * type)
+enterNewVariable(struct scope *enteringScope, struct init * i, struct astnode * specs, int nameSpace, struct astnode * type)
 {
 	// need to iterate over each of the initialized variables
 	// and create a symbol for each of them...
@@ -317,8 +317,6 @@ enterNewVariable(struct scope *enteringScope, struct init * i, struct ast_node *
 			1. we check to see if this variable name is used in this name space
 			2. check if the type qualifier combination is allowed.
 	 */
-	struct astnode_type * s = specs->u.type
-	struct astnode_type * start = specs->u.type;
 	int val;
 	while (i) {
 		// look up variable name in scope right here
@@ -334,7 +332,8 @@ enterNewVariable(struct scope *enteringScope, struct init * i, struct ast_node *
 		newSymbol->nameSpace = nameSpace;
 		newSymbol->definedScope = enteringScope;
 		newSymbol->sign = 1;
-		while(s) {
+		printf("%d value", specs->u.spec.val);
+		/* while(s) {
 			val = s->val;
 			if (val == AUTO || val == EXTERN || val == REGISTER || val == STATIC){
 			 	newSymbol->storageClass = val;
@@ -342,21 +341,20 @@ enterNewVariable(struct scope *enteringScope, struct init * i, struct ast_node *
 				newSymbol->type_qualifier = val;
 			}else if (val == UNSIGNED) {
 				newSymbol->sign = 0;
-			}else if (val == SHORT || val == INTEGER || val == LONG || val == LONGLONG || val == CHR || val == BOOL || val == ENUM || val == FLT || val == DBLE || val == UNION || val == VOID){
-				if (val == INTEGER && (newSymbol->type == LONG || newSymbol->type == LONGLONG || newSymbol->type == SHORT)) {
-				} else if (newSymbol->type.u.type.val != 0){
-				   yyerror("Hold up, this expression is being assigned two types. Variable %s", i->value);
-			       	   goto FINISHED;
-				}else{
-					// i have to figure out here how I will determine what kind of astnode type to put here.
-					// This simple assignment is not going to suffice.
-					newSymbol->
-				}
+			}else if (val == SIGNED && type == NULL) {
+				// here we have to assign the type here to int.
+				struct astnode * type = malloc(sizeof(struct astnode));
+				type->nodetype = TYPE;
+			       	type->u.spec.val = INT;	
 			}
-			s = s->next;
-		}
-
-		s = start;
+			s = &(s->next->u.spec);
+		} */
+		//now got to resolve the type here.
+		// really it should just be a simple asignment however there is one instance where we need to simplify
+		// if it is a longlong int or short int those are just equal to the thing on the right
+		// however, the parser handles that in the type_name part
+		newSymbol->type = &(type->u.spec); 
+		//s = start;
 		enteringScope->last = newSymbol;
 		i = i->next;
 	}
@@ -367,8 +365,8 @@ void
 printVariable(struct scope *enteringScope, int line, char * filenm)
 {
 	// this function will print the most recent thing o nthe 
-	struct symbol * last = enteringScope->last;
+	/* struct symbol * last = enteringScope->last;
 	if (last) {
-		printf("YO! FILENAME:%s line: %d \n\t NameSpace:%d, StorageClass:%d, type:%d, type_qualifier:%d, sign:%d,\n\t name:%s\n",filenm, line, last->nameSpace, last->storageClass, last->type, last->type_qualifier, last->sign, last->name);
-	}
+		printf("YO! FILENAME:%s line: %d \n\t NameSpace:%d, StorageClass:%d, type:%d, type_qualifier:%d, sign:%d,\n\t name:%s\n",filenm, line, last->nameSpace, last->storageClass, last->type->u.spec.val, last->type_qualifier, last->sign, last->name);
+	} */
 }

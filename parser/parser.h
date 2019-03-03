@@ -90,7 +90,7 @@ struct scope{
 struct symbol{
 	int nameSpace;
 	int storageClass;
-	struct * astnode;
+	struct  astnode * type;
 	int type_qualifier;
 	int sign;
 	char* name;
@@ -107,7 +107,7 @@ struct superSpec{
 	// the other stuff...
 	struct astnode * s;
 	struct  astnode * t;
-}
+};
 
 
 struct init{
@@ -130,7 +130,7 @@ char * token2name(int token);
 struct scope *newSymbolTable(struct scope * currentScope);
 void destroySymbolTable(struct scope *s);
 struct symbol *findSymbol(struct scope *lookingScope, char * name,int nameSpace);
-void enterNewVariable(struct scope *enteringScope, struct init * initializers, struct ast_node * decl_specs, int nameSpace, struct ast_node * type);
+void enterNewVariable(struct scope *enteringScope, struct init * initializers, struct astnode * decl_specs, int nameSpace, struct astnode * type);
 void printVariable(struct scope *enteringScope, int line, char * filenm);
 
 
