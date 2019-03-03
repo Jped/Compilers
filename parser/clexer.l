@@ -7,8 +7,9 @@
 
 char string[4096];
 int pos = 0;
-char file_name[300];
 int line=1;
+
+
 %}
 
 DIGIT [0-9]
@@ -97,6 +98,7 @@ const	{return CONST;}
 do	{return DO;}
 extern	{return EXTERN;}
 if	{return IF;}
+"long long" {return LONGLONG;}
 long	{return LONG;}
 signed	{return SIGNED;}
 switch	{return SWITCH;}
@@ -134,7 +136,13 @@ typedef	{return TYPEDEF;}
 [1-9]{DIGIT}*([Ll][Uu]|[Uu][Ll]) {yylval.integer=strtoull(yytext,NULL,10);return INT;}
 [1-9]{DIGIT}*([Uu](LL|ll)|(LL|ll)[Uu]) {yylval.integer=strtoull(yytext,NULL,10);return INT;}
 [A-Za-z\_]+[A-Za-z0-9\_]* {yylval.string_literal = string;pos=0;strcpy(yylval.string_literal,yytext);return IDENT;}
-#.*?\.c\" {strcpy(yylval.value, yytext);return FILEN;}
+#.*?\.c\" {
+		char *cptr;
+		cptr = strtok(yytext,"\"");
+	 	cptr = strtok(NULL,"\"");
+		line = 0;
+		strcpy(file_name, cptr);
+	}
 #.*
 \n      {line++;}
 [ \t]	{/*ignore whitespace */}

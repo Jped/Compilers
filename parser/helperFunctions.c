@@ -1,12 +1,11 @@
-//develop AST structure and supporting functions here
-//
-// used the O'Rielly  flex and bison book for inspiration.
 # include <stdio.h>
 # include <stdlib.h>
 # include <stdarg.h>
 # include <string.h>
 # include "parser.h"
 # include "cparser.tab.h"
+
+	
 struct astnode * 
 newTerop(int nodetype, int op, struct astnode *l, struct astnode *c, struct astnode *r)
 {
@@ -225,7 +224,6 @@ yyerror(char*s,...)
 int
 main()
 {
-	printf("> ");
 	return yyparse();
 }
 
@@ -257,5 +255,120 @@ token2name(int token)
 		       return "SIZEOF";
 		case EQEQ:
 		       return "==";
+	}
+}
+
+
+struct scope *
+newSymbolTable(struct scope * currentScope)
+{
+	//create a new scope
+	struct scope * newScope = malloc(sizeof(struct scope));
+	//link them
+	newScope->previous = currentScope;
+	currentScope->next = newScope;
+	//return new current scope
+	return newScope;
+}
+
+void 
+destroySymbolTable(struct scope *s)
+{
+	struct symbol * sym = s->last;
+	while (sym){
+		
+		struct symbol * temp = sym->previous;
+		free(sym);
+		sym = temp;
+	}
+	free(s);
+}
+
+struct symbol * 
+findSymbol(struct scope *lookingScope, char * name, int nameSpace)
+{
+	// look in current scope
+	struct symbol * currSymbol = lookingScope->last;
+	while (currSymbol){
+		if (currSymbol->nameSpace==nameSpace && strcmp(name, currSymbol->name)==0){
+			return currSymbol;
+		}
+		currSymbol = currSymbol->previous;
+	}
+	// if not found  go to next scope
+	struct scope * nextScope = lookingScope->previous;
+	if (nextScope){
+		return findSymbol(nextScope,name,nameSpace);
+	} else{
+		return NULL;
+	}
+	// if there are no scopes just return null
+
+}
+
+void 
+enterNewVariable(struct scope *enteringScope, struct init * i, struct ast_node * specs, int nameSpace, struct astnode * type)
+{
+	// need to iterate over each of the initialized variables
+	// and create a symbol for each of them...
+
+	/*
+	 	We do the following error checking in this function:
+			1. we check to see if this variable name is used in this name space
+			2. check if the type qualifier combination is allowed.
+	 */
+	struct astnode_type * s = specs->u.type
+	struct astnode_type * start = specs->u.type;
+	int val;
+	while (i) {
+		// look up variable name in scope right here
+		struct symbol * sameName = findSymbol(enteringScope, i->value, nameSpace);
+		if (sameName && sameName->definedScope == enteringScope){
+			//RAISE ERROR
+			yyerror("CONFLICTING SCOPES WITH VARIABLE: %s", i->value);
+			goto FINISHED;
+		}
+		struct symbol * newSymbol = malloc(sizeof(struct symbol));
+		newSymbol->name = strdup(i->value);
+		newSymbol->previous = enteringScope->last;
+		newSymbol->nameSpace = nameSpace;
+		newSymbol->definedScope = enteringScope;
+		newSymbol->sign = 1;
+		while(s) {
+			val = s->val;
+			if (val == AUTO || val == EXTERN || val == REGISTER || val == STATIC){
+			 	newSymbol->storageClass = val;
+			}else if (val == CONST || val == VOLATILE || val == RESTRICT){
+				newSymbol->type_qualifier = val;
+			}else if (val == UNSIGNED) {
+				newSymbol->sign = 0;
+			}else if (val == SHORT || val == INTEGER || val == LONG || val == LONGLONG || val == CHR || val == BOOL || val == ENUM || val == FLT || val == DBLE || val == UNION || val == VOID){
+				if (val == INTEGER && (newSymbol->type == LONG || newSymbol->type == LONGLONG || newSymbol->type == SHORT)) {
+				} else if (newSymbol->type.u.type.val != 0){
+				   yyerror("Hold up, this expression is being assigned two types. Variable %s", i->value);
+			       	   goto FINISHED;
+				}else{
+					// i have to figure out here how I will determine what kind of astnode type to put here.
+					// This simple assignment is not going to suffice.
+					newSymbol->
+				}
+			}
+			s = s->next;
+		}
+
+		s = start;
+		enteringScope->last = newSymbol;
+		i = i->next;
+	}
+   FINISHED:;
+}
+
+void 
+printVariable(struct scope *enteringScope, int line, char * filenm)
+{
+	// this function will print the most recent thing o nthe 
+	struct symbol * last = enteringScope->last;
+	if (last) {
+		printf("YO! FILENAME:%s line: %d \n\t NameSpace:%d, StorageClass:%d, type:%d, type_qualifier:%d, sign:%d,\n\t name:%s\n",filenm, line, last->nameSpace, last->storageClass, last->type, last->type_qualifier, last->sign, last->name);
 	}
 }

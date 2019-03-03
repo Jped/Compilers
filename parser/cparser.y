@@ -9,14 +9,22 @@
 %{
 # include <stdio.h>
 # include <stdlib.h>
+# include <string.h>
 # include "parser.h"
 # include "ops.h"
+# include "namespace.h"
+# include "types.h"
+
+char file_name[300];
+int line;
 %}
 
 
 %union{
 	struct astnode *a;
 	struct listarg *l;
+	struct spec *s;
+	struct init *i;
 	int integer;
 	char *value;
 	char *string_literal;
@@ -83,6 +91,7 @@
 %token EXTERN
 %token IF
 %token LONG
+%token LONGLONG
 %token SIGNED
 %token SWITCH
 %token VOID
@@ -98,9 +107,13 @@
 %token <string_litearl> FILEN
 
 
-%type <a> exp unary_expression sizeof_expression type_name primary_expression numbers characters constant parenthesized_expression cast_expression postfix_expression binary_expression ternary_expression assignment_expression comma_expression 
-
+%type <a> exp unary_expression primary_expression numbers characters constant parenthesized_expression cast_expression postfix_expression binary_expression ternary_expression assignment_expression comma_expression 
+%type <s> declaration_specifier
+%type <i> initialized_declarator_list
 %type <l> expression_list
+%type <integer> declaration_spec type_name type_qualifier storage_class_specifier 
+%type <string_literal> initialized_declarator
+
 %left LOGOR
 %left LOGAND
 %left '|'
@@ -111,23 +124,157 @@
 %left SHL SHR
 %left '+' '-'
 %left '*' '/' '%'
-%start exp_stm_list
+%start decl_or_stmt
 
 %define parse.error verbose
-%token-table
 
 %%
+
+decl_or_stmt: 	declaration {printf(">");}
+		| statement
+		;
+
+declaration:	decl
+	     	| declaration decl
+		;
+
+decl:   	declaration_specifier initialized_declarator_list ';' {
+	   									struct scope * escope = malloc(sizeof(struct scope));
+										escope->last = NULL;
+										escope->next = NULL;
+										escope->previous = NULL;	
+										// have to recover the type astnode here and pass it in.
+										struct astnode * specs = $1->s;
+										struct astnode * type = $1->t;
+										enterNewVariable(escope,$2,specs,GLOBALSCOPE,type);
+										printVariable(escope,line, file_name);
+										}
+	  	;
+
+declaration_specifier:	declaration_spec { 
+		     			 	struct superSpec * lastSpec = malloc(sizeof(struct superSpec));
+						if ($1->nodeType == TYPE){
+							lastSpec->t = $1
+						}else if($1->nodeType == SPEC){
+						 	lastSpec->s = $1;				
+						}
+						$$ = lastSpec;
+					 } 
+		     	| declaration_specifier declaration_spec {
+									
+									struct superSpec * previous = $1;
+									// see which type of value we have here
+									// and add it to the corresponding nodetype
+									
+									if($2->nodeType == TYPE){
+										struct astnode * t = previous->t;
+										t->u.spec.next = $2;
+									}else if($2->nodeType == SPEC){
+										struct astnode *s = previous->s;
+										s->u.spec.next = $2;
+									}
+									$$ = newSpec; 
+								 }
+			;
+
+declaration_spec: 		specs {
+					struct astnode * spec = malloc(sizeof(struct astnode));
+					spec->u.nodetype = SPEC;
+					spec->u.spec.val = $1;
+
+					}
+		      		| type_name
+				;
+
+specs: 	storage_class_specifier
+     	| type_qualifier
+	;
+
+initialized_declarator_list:	initialized_declarator {
+								struct init * lastInit = malloc(sizeof(struct init));
+								lastInit->value = strdup($1); 	
+								lastInit->next=NULL;
+								$$ = lastInit; 
+
+							}
+			   	| initialized_declarator_list ',' initialized_declarator {
+												struct init * newInit = malloc(sizeof(struct init));
+												newInit->value = strdup($3); 
+												newInit->next=$1;
+												$$ = newInit;				
+											 }
+				;
+
+initialized_declarator: declarator
+			;
+
+declarator:	direct_declarator
+	  	;
+
+direct_declarator: 	simple_declarator
+		 	|'(' declarator ')'
+			| function_declarator
+			| array_declarator
+		 	;
+
+simple_declarator:	IDENT 
+		 	;
+	  	
+function_declarator:	direct_declarator '(' parameter_type_list ')'
+		   	| direct_declarator '(' identifier_list ')'
+			| direct_declarator '(' ')'
+			;
+
+parameter_type_list: 	parameter_list
+		   	| parameter_list ',' ELLIPSIS
+			;
+
+parameter_list:		parameter_decleration
+			| parameter_list ',' parameter_declaration
+			;
+
+parameter_declaration: 	declataion_specifier declarator
+		     	| declaration_specifier
+			;
+
+indentifier_list: 	IDENT
+			| parameter_list ',' IDENT
+			;
+
+array_declarator:	direct_declarator '['']'
+			| direct_declarator '[' INT ']'
+			;
+
+
+storage_class_specifier:	AUTO {$$=AUTO;}
+				| EXTERN {$$=EXTERN;}
+				| REGISTER {$$=REGISTER;}
+				| STATIC {$$=STATIC;}
+				| TYPEDEF {$$=TYPEDEF;}
+				;
+
+type_qualifier:	CONST {$$=CONST;}
+		| VOLATILE {$$=VOLATILE;}
+		| RESTRICT {$$=RESTRICT;}
+		| SIGNED {$$=SIGNED;}
+		| UNSIGNED {$$=UNSIGNED;}
+		;
+
+
+statement:	exp_stm
+	 	| exp_stm_list exp_stm
+		;
 
 exp_stm_list:	exp_stm 
 		| exp_stm_list exp_stm
 		;
-exp_stm: exp ';' {printast($1,0); printf("> ");};
+
+exp_stm: exp ';' {printast($1,0); printf("File: %s line: %d> ",file_name,line);};
 
 exp:	 comma_expression {$$ = $1;}
 	;
 
-primary_expression:	IDENT {$$  = newIdent(IDENT_OP,$1);}
-		   	| constant {$$=$1;}
+primary_expression:	constant {$$=$1;}
 			| parenthesized_expression {$$=$1;}
 			;
 constant:	numbers {$$=$1;}
@@ -162,7 +309,6 @@ parenthesized_expression:	'(' exp ')' {$$=$2;}
 				;
 
 cast_expression:	unary_expression {$$=$1;}
-	       		| '(' type_name ')' cast_expression {$$ = newBinop(CAST_OP,' ',$2, $4);}
 			;
 
 postfix_expression:	primary_expression {$$=$1;}
@@ -221,7 +367,6 @@ binary_expression:	cast_expression {$$ = $1;}
 			;
 
 unary_expression:	postfix_expression {$$ = $1;}
-			|sizeof_expression {$$ = $1;}
 			| '-' cast_expression {$$=newUnop(SIMPLE_UNOP,'-',$2);} 
 			| '+' cast_expression {$$=newUnop(SIMPLE_UNOP,'+',$2);} 
 			| '!' cast_expression {$$=newUnop(SIMPLE_UNOP,'!',$2);}
@@ -249,21 +394,26 @@ unary_expression:	postfix_expression {$$ = $1;}
 
 			;
 
-sizeof_expression:	SIZEOF '(' type_name ')' {$$ = newUnop(SIMPLE_UNOP,SIZEOF,$3);}
-		 	| SIZEOF unary_expression {$$ = newUnop(SIMPLE_UNOP,SIZEOF,$2);}
-			;
 
+type_name:	type_n {
+	 		struct astnode * simpleType = malloc(sizeof(struct astnode));
+			simpleType->u.nodetype = TYPE;
+			simpleType->u.spec.val = $1;
+				
+			}
+	 	;
 
-type_name: SHORT {$$ = newIdent(TYPE_OP,"SHORT");}
-	 | INTEGER {$$ = newIdent(TYPE_OP,"INT");}
-	 | LONG	{$$ = newIdent(TYPE_OP,"LONG");}
-	 | CHR	{$$ = newIdent(TYPE_OP, "CHAR");}
-	 | BOOL	{$$ = newIdent(TYPE_OP, "BOOL");}
-	 | ENUM	{$$ = newIdent(TYPE_OP, "ENUM");}
-	 | FLT	{$$ = newIdent(TYPE_OP, "FLOAT");}
-	 | DBLE	{$$ = newIdent(TYPE_OP, "DOUBLE");}
-	 | UNION {$$ = newIdent(TYPE_OP, "UNION");}
-	 | VOID	 {$$ = newIdent(TYPE_OP,"VOID");}
+type_n: SHORT {$$=SHORT;}
+	 | INTEGER {$$=INTEGER;}
+	 | LONG {$$=LONG;}
+	 | LONGLONG {$$=LONGLONG;}	 
+	 | CHR {$$=CHR;}	
+	 | BOOL	{$$=BOOL;}
+	 | ENUM	{$$=ENUM;}
+	 | FLT	{$$=FLT;}
+	 | DBLE	{$$=DBLE;}
+	 | UNION {$$=UNION;} 	 
+	 | VOID	 {$$=VOID;}
 	 ;
 
 ternary_expression: 	binary_expression {$$=$1;}
@@ -332,3 +482,4 @@ comma_expression:	assignment_expression {$$ = $1;}
 			;
 
 %%
+
