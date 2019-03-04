@@ -91,6 +91,7 @@ enum	{return ENUM;}
 goto	{return GOTO;}
 int	{return INTEGER;}
 short	{return SHORT;}
+"short int" {return SHORT;}
 struct	{return STRUCT;}
 unsigned {return UNSIGNED;}
 break	{return BREAK;}
@@ -99,7 +100,9 @@ do	{return DO;}
 extern	{return EXTERN;}
 if	{return IF;}
 "long long" {return LONGLONG;}
+"long long int" {return LONGLONG;}
 long	{return LONG;}
+"long int" {return LONG;}
 signed	{return SIGNED;}
 switch	{return SWITCH;}
 void	{return VOID;}

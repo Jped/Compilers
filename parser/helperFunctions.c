@@ -318,6 +318,7 @@ enterNewVariable(struct scope *enteringScope, struct init * i, struct astnode * 
 			2. check if the type qualifier combination is allowed.
 	 */
 	int val;
+	struct astnode * firstspec = specs;
 	while (i) {
 		// look up variable name in scope right here
 		struct symbol * sameName = findSymbol(enteringScope, i->value, nameSpace);
@@ -332,9 +333,9 @@ enterNewVariable(struct scope *enteringScope, struct init * i, struct astnode * 
 		newSymbol->nameSpace = nameSpace;
 		newSymbol->definedScope = enteringScope;
 		newSymbol->sign = 1;
-		printf("%d value", specs->u.spec.val);
-		/* while(s) {
-			val = s->val;
+		while(specs) {
+			val = specs->u.spec.val;
+			//printf("SPEC %d",val);
 			if (val == AUTO || val == EXTERN || val == REGISTER || val == STATIC){
 			 	newSymbol->storageClass = val;
 			}else if (val == CONST || val == VOLATILE || val == RESTRICT){
@@ -343,19 +344,19 @@ enterNewVariable(struct scope *enteringScope, struct init * i, struct astnode * 
 				newSymbol->sign = 0;
 			}else if (val == SIGNED && type == NULL) {
 				// here we have to assign the type here to int.
-				struct astnode * type = malloc(sizeof(struct astnode));
-				type->nodetype = TYPE;
-			       	type->u.spec.val = INT;	
+				struct astnode * ty = malloc(sizeof(struct astnode));
+				ty->nodetype = TYPE;
+			       	ty->u.spec.val = INT;	
 			}
-			s = &(s->next->u.spec);
-		} */
+			specs = specs->u.spec.next;
+		}
 		//now got to resolve the type here.
 		// really it should just be a simple asignment however there is one instance where we need to simplify
 		// if it is a longlong int or short int those are just equal to the thing on the right
 		// however, the parser handles that in the type_name part
-		newSymbol->type = &(type->u.spec); 
-		//s = start;
+		newSymbol->type = type; 
 		enteringScope->last = newSymbol;
+		specs = firstspec;
 		i = i->next;
 	}
    FINISHED:;
@@ -365,8 +366,8 @@ void
 printVariable(struct scope *enteringScope, int line, char * filenm)
 {
 	// this function will print the most recent thing o nthe 
-	/* struct symbol * last = enteringScope->last;
+	struct symbol * last = enteringScope->last;
 	if (last) {
 		printf("YO! FILENAME:%s line: %d \n\t NameSpace:%d, StorageClass:%d, type:%d, type_qualifier:%d, sign:%d,\n\t name:%s\n",filenm, line, last->nameSpace, last->storageClass, last->type->u.spec.val, last->type_qualifier, last->sign, last->name);
-	} */
+	} 
 }

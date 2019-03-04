@@ -23,8 +23,8 @@ int line;
 %union{
 	struct astnode *a;
 	struct listarg *l;
-	struct spec *s;
 	struct init *i;
+	struct superSpec *super;
 	int integer;
 	char *value;
 	char *string_literal;
@@ -107,11 +107,11 @@ int line;
 %token <string_litearl> FILEN
 
 
-%type <a> exp unary_expression primary_expression numbers characters constant parenthesized_expression cast_expression postfix_expression binary_expression ternary_expression assignment_expression comma_expression 
-%type <s> declaration_specifier
+%type <a> exp unary_expression primary_expression numbers characters constant parenthesized_expression cast_expression postfix_expression binary_expression ternary_expression assignment_expression comma_expression type_name declaration_spec 
+%type <super> declaration_specifier
 %type <i> initialized_declarator_list
 %type <l> expression_list
-%type <integer> declaration_spec type_name type_qualifier storage_class_specifier 
+%type <integer> type_n type_qualifier storage_class_specifier specs 
 %type <string_literal> initialized_declarator
 
 %left LOGOR
@@ -145,43 +145,53 @@ decl:   	declaration_specifier initialized_declarator_list ';' {
 										escope->previous = NULL;	
 										// have to recover the type astnode here and pass it in.
 										struct astnode * specs = $1->s;
-										struct astnode * type = $1->t;
+										struct astnode * type = $1->t; 
 										enterNewVariable(escope,$2,specs,GLOBALSCOPE,type);
 										printVariable(escope,line, file_name);
+										
 										}
 	  	;
 
 declaration_specifier:	declaration_spec { 
 		     			 	struct superSpec * lastSpec = malloc(sizeof(struct superSpec));
-						if ($1->nodeType == TYPE){
-							lastSpec->t = $1
-						}else if($1->nodeType == SPEC){
-						 	lastSpec->s = $1;				
-						}
-						$$ = lastSpec;
+						lastSpec->t = NULL;
+						lastSpec->s = NULL;
+						if ($1->nodetype == TYPE){	
+							lastSpec->t = $1;
+						}else if($1->nodetype == SPEC){
+						 	lastSpec->s = $1;
+						} 
+						$$ = lastSpec; 
 					 } 
 		     	| declaration_specifier declaration_spec {
 									
 									struct superSpec * previous = $1;
 									// see which type of value we have here
 									// and add it to the corresponding nodetype
-									
-									if($2->nodeType == TYPE){
+									 if($2->nodetype == TYPE){
 										struct astnode * t = previous->t;
-										t->u.spec.next = $2;
-									}else if($2->nodeType == SPEC){
+										if(t){		
+											t->u.spec.next = $2;
+										}else{
+											previous->t = $2;
+										}
+									}else if($2->nodetype == SPEC){
 										struct astnode *s = previous->s;
-										s->u.spec.next = $2;
+										if(s){
+											s->u.spec.next = $2;
+										}else{
+											previous->s = $2;
+										}
 									}
-									$$ = newSpec; 
+									$$ = previous; 
 								 }
 			;
 
 declaration_spec: 		specs {
 					struct astnode * spec = malloc(sizeof(struct astnode));
-					spec->u.nodetype = SPEC;
+					spec->nodetype = SPEC;
 					spec->u.spec.val = $1;
-
+					$$ = spec;
 					}
 		      		| type_name
 				;
@@ -229,15 +239,15 @@ parameter_type_list: 	parameter_list
 		   	| parameter_list ',' ELLIPSIS
 			;
 
-parameter_list:		parameter_decleration
+parameter_list:		parameter_declaration
 			| parameter_list ',' parameter_declaration
 			;
 
-parameter_declaration: 	declataion_specifier declarator
+parameter_declaration: 	declaration_specifier declarator
 		     	| declaration_specifier
 			;
 
-indentifier_list: 	IDENT
+identifier_list: 	IDENT
 			| parameter_list ',' IDENT
 			;
 
@@ -397,24 +407,24 @@ unary_expression:	postfix_expression {$$ = $1;}
 
 type_name:	type_n {
 	 		struct astnode * simpleType = malloc(sizeof(struct astnode));
-			simpleType->u.nodetype = TYPE;
+			simpleType->nodetype = TYPE;
 			simpleType->u.spec.val = $1;
-				
+			$$ = simpleType;
 			}
 	 	;
 
-type_n: SHORT {$$=SHORT;}
-	 | INTEGER {$$=INTEGER;}
-	 | LONG {$$=LONG;}
-	 | LONGLONG {$$=LONGLONG;}	 
-	 | CHR {$$=CHR;}	
-	 | BOOL	{$$=BOOL;}
-	 | ENUM	{$$=ENUM;}
-	 | FLT	{$$=FLT;}
-	 | DBLE	{$$=DBLE;}
-	 | UNION {$$=UNION;} 	 
-	 | VOID	 {$$=VOID;}
-	 ;
+type_n: 	SHORT {$$=SHORT;}
+	 	| INTEGER {$$=INTEGER;}
+	 	| LONG {$$=LONG;}
+		| LONGLONG {$$=LONGLONG;}
+	 	| CHR {$$=CHR;}	
+	 	| BOOL	{$$=BOOL;}
+	 	| ENUM	{$$=ENUM;}
+	 	| FLT	{$$=FLT;}
+	 	| DBLE	{$$=DBLE;}
+	 	| UNION {$$=UNION;} 	 
+	 	| VOID	 {$$=VOID;}
+	 	;
 
 ternary_expression: 	binary_expression {$$=$1;}
 		  	|binary_expression '?' exp ':' ternary_expression {$$ = newTerop(TERNARY_OP,1,$1,$3,$5);}

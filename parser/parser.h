@@ -57,7 +57,7 @@ struct astnode_string {
 
 };
 
-struct astnode_type {
+struct astnode_spec {
 		int val;
 		struct astnode * next; 
 };
@@ -73,7 +73,7 @@ struct astnode {
 		struct astnode_ident ident;
 		struct astnode_num num;
 		struct astnode_string string;
-		struct astnode_type spec;
+		struct astnode_spec spec;
 	} u;
 	
 };
