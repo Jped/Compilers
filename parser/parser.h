@@ -107,6 +107,7 @@ struct superSpec{
 	// the other stuff...
 	struct astnode * s;
 	struct  astnode * t;
+	struct init * i;
 };
 
 

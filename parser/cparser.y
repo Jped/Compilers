@@ -23,13 +23,12 @@ int line;
 %union{
 	struct astnode *a;
 	struct listarg *l;
-	struct init *i;
 	struct superSpec *super;
 	int integer;
 	char *value;
-	char *string_literal;
 	float f;
 	double d;
+	char * string_literal;
 }
 
 %token <integer> INT
@@ -104,15 +103,14 @@ int line;
 %token SIZEOF
 %token VOLATILE
 %token TYPEDEF
-%token <string_litearl> FILEN
+%token <string_literal> FILEN
 
 
 %type <a> exp unary_expression primary_expression numbers characters constant parenthesized_expression cast_expression postfix_expression binary_expression ternary_expression assignment_expression comma_expression type_name declaration_spec 
-%type <super> declaration_specifier
-%type <i> initialized_declarator_list
+%type <super> declaration_specifier initialized_declarator_list decl 
+%type <string_literal> initialized_declarator
 %type <l> expression_list
 %type <integer> type_n type_qualifier storage_class_specifier specs 
-%type <string_literal> initialized_declarator
 
 %left LOGOR
 %left LOGAND
@@ -126,7 +124,7 @@ int line;
 %left '*' '/' '%'
 %start decl_or_stmt
 
-%define parse.error verbose
+%define parse.error verbose 
 
 %%
 
@@ -146,7 +144,8 @@ decl:   	declaration_specifier initialized_declarator_list ';' {
 										// have to recover the type astnode here and pass it in.
 										struct astnode * specs = $1->s;
 										struct astnode * type = $1->t; 
-										enterNewVariable(escope,$2,specs,GLOBALSCOPE,type);
+										struct init * i = $2->i;
+										enterNewVariable(escope,i,specs,GLOBALSCOPE,type);
 										printVariable(escope,line, file_name);
 										
 										}
@@ -201,33 +200,40 @@ specs: 	storage_class_specifier
 	;
 
 initialized_declarator_list:	initialized_declarator {
+			   					struct superSpec * super = $<super>0;
 								struct init * lastInit = malloc(sizeof(struct init));
 								lastInit->value = strdup($1); 	
 								lastInit->next=NULL;
-								$$ = lastInit; 
-
+								super->i = lastInit;
+								$$ = super; 
 							}
 			   	| initialized_declarator_list ',' initialized_declarator {
+												struct superSpec * super = $1;
+												struct init * previous = $1->i;
 												struct init * newInit = malloc(sizeof(struct init));
 												newInit->value = strdup($3); 
-												newInit->next=$1;
-												$$ = newInit;				
+												newInit->next = previous;
+												super->i = newInit;
+												$$ = super;				
 											 }
+				
 				;
 
-initialized_declarator: declarator
+initialized_declarator: direct_declarator
 			;
 
 declarator:	direct_declarator
 	  	;
 
 direct_declarator: 	simple_declarator
-		 	|'(' declarator ')'
+		 	|'(' declarator ')' 
 			| function_declarator
 			| array_declarator
 		 	;
 
-simple_declarator:	IDENT 
+simple_declarator:	IDENT {
+			
+		 	}
 		 	;
 	  	
 function_declarator:	direct_declarator '(' parameter_type_list ')'
