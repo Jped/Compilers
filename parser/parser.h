@@ -106,14 +106,25 @@ struct superSpec{
 	// the type portion of speceifiers from
 	// the other stuff...
 	struct astnode * s;
-	struct  astnode * t;
+	struct initializedTypes * initialType;
 	struct init * i;
+	struct astnode * generalType;
 };
 
 
 struct init{
 	char * value;
 	struct init * next;
+};
+
+struct initializedTypes{
+	struct astnode *t;
+	struct initializedTypes * next; 
+};
+
+struct smallSpec{
+	char * value;
+	struct initializedTypes * next;
 };
 
 struct astnode *newBinop(int nodetype, int op, struct astnode *l, struct astnode *r);
@@ -131,7 +142,7 @@ char * token2name(int token);
 struct scope *newSymbolTable(struct scope * currentScope);
 void destroySymbolTable(struct scope *s);
 struct symbol *findSymbol(struct scope *lookingScope, char * name,int nameSpace);
-void enterNewVariable(struct scope *enteringScope, struct init * initializers, struct astnode * decl_specs, int nameSpace, struct astnode * type);
+void enterNewVariable(struct scope *enteringScope,int nameSpace, struct superSpec * super);
 void printVariable(struct scope *enteringScope, int line, char * filenm);
 
 

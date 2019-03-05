@@ -307,7 +307,7 @@ findSymbol(struct scope *lookingScope, char * name, int nameSpace)
 }
 
 void 
-enterNewVariable(struct scope *enteringScope, struct init * i, struct astnode * specs, int nameSpace, struct astnode * type)
+enterNewVariable(struct scope *enteringScope, int nameSpace, struct superSpec * super)
 {
 	// need to iterate over each of the initialized variables
 	// and create a symbol for each of them...
@@ -318,7 +318,9 @@ enterNewVariable(struct scope *enteringScope, struct init * i, struct astnode * 
 			2. check if the type qualifier combination is allowed.
 	 */
 	int val;
-	struct astnode * firstspec = specs;
+	struct astnode * specs = super->s;
+	struct init * i = super->i;
+	struct initializedTypes * currentType = super->initialType;
 	while (i) {
 		// look up variable name in scope right here
 		struct symbol * sameName = findSymbol(enteringScope, i->value, nameSpace);
@@ -329,6 +331,7 @@ enterNewVariable(struct scope *enteringScope, struct init * i, struct astnode * 
 		}
 		struct symbol * newSymbol = malloc(sizeof(struct symbol));
 		newSymbol->name = strdup(i->value);
+		printf("new init name: %s\n", i->value);
 		newSymbol->previous = enteringScope->last;
 		newSymbol->nameSpace = nameSpace;
 		newSymbol->definedScope = enteringScope;
@@ -337,26 +340,30 @@ enterNewVariable(struct scope *enteringScope, struct init * i, struct astnode * 
 			val = specs->u.spec.val;
 			//printf("SPEC %d",val);
 			if (val == AUTO || val == EXTERN || val == REGISTER || val == STATIC){
-			 	newSymbol->storageClass = val;
+			 	printf("storage class");
+				newSymbol->storageClass = val;
 			}else if (val == CONST || val == VOLATILE || val == RESTRICT){
 				newSymbol->type_qualifier = val;
 			}else if (val == UNSIGNED) {
 				newSymbol->sign = 0;
-			}else if (val == SIGNED && type == NULL) {
+			}
+			if ((val == UNSIGNED || val == SIGNED) && super->generalType == NULL) {
 				// here we have to assign the type here to int.
 				struct astnode * ty = malloc(sizeof(struct astnode));
 				ty->nodetype = TYPE;
-			       	ty->u.spec.val = INT;	
+			       	ty->u.spec.val = INTEGER;	
+				currentType->t = ty;
 			}
 			specs = specs->u.spec.next;
 		}
-		//now got to resolve the type here.
-		// really it should just be a simple asignment however there is one instance where we need to simplify
-		// if it is a longlong int or short int those are just equal to the thing on the right
-		// however, the parser handles that in the type_name part
-		newSymbol->type = type; 
+		// now got to resolve the type here.
+		// basically, we need to take the current 
+		// pointer to type use it and then move to the 
+		// next one 
+		newSymbol->type = currentType->t;
+	       	currentType = currentType->next;	
 		enteringScope->last = newSymbol;
-		specs = firstspec;
+		specs = super->s;
 		i = i->next;
 	}
    FINISHED:;

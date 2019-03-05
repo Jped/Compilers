@@ -107,8 +107,7 @@ int line;
 
 
 %type <a> exp unary_expression primary_expression numbers characters constant parenthesized_expression cast_expression postfix_expression binary_expression ternary_expression assignment_expression comma_expression type_name declaration_spec 
-%type <super> declaration_specifier initialized_declarator_list decl 
-%type <string_literal> initialized_declarator
+%type <super> declaration_specifier initialized_declarator_list decl simple_declarator initialized_declarator
 %type <l> expression_list
 %type <integer> type_n type_qualifier storage_class_specifier specs 
 
@@ -140,23 +139,20 @@ decl:   	declaration_specifier initialized_declarator_list ';' {
 	   									struct scope * escope = malloc(sizeof(struct scope));
 										escope->last = NULL;
 										escope->next = NULL;
-										escope->previous = NULL;	
-										// have to recover the type astnode here and pass it in.
-										struct astnode * specs = $1->s;
-										struct astnode * type = $1->t; 
-										struct init * i = $2->i;
-										enterNewVariable(escope,i,specs,GLOBALSCOPE,type);
-										printVariable(escope,line, file_name);
+										escope->previous = NULL;
+										printf("PARENT DECL name: %s \n",$2->i->value);
+										enterNewVariable(escope,GLOBALSCOPE,$2);
+										//printVariable(escope,line, file_name);
 										
 										}
 	  	;
 
 declaration_specifier:	declaration_spec { 
 		     			 	struct superSpec * lastSpec = malloc(sizeof(struct superSpec));
-						lastSpec->t = NULL;
+						lastSpec->generalType = NULL;
 						lastSpec->s = NULL;
 						if ($1->nodetype == TYPE){	
-							lastSpec->t = $1;
+							lastSpec->generalType = $1;
 						}else if($1->nodetype == SPEC){
 						 	lastSpec->s = $1;
 						} 
@@ -168,11 +164,11 @@ declaration_specifier:	declaration_spec {
 									// see which type of value we have here
 									// and add it to the corresponding nodetype
 									 if($2->nodetype == TYPE){
-										struct astnode * t = previous->t;
+										struct astnode * t = previous->generalType;
 										if(t){		
 											t->u.spec.next = $2;
 										}else{
-											previous->t = $2;
+											previous->generalType = $2;
 										}
 									}else if($2->nodetype == SPEC){
 										struct astnode *s = previous->s;
@@ -200,23 +196,14 @@ specs: 	storage_class_specifier
 	;
 
 initialized_declarator_list:	initialized_declarator {
-			   					struct superSpec * super = $<super>0;
-								struct init * lastInit = malloc(sizeof(struct init));
-								lastInit->value = strdup($1); 	
-								lastInit->next=NULL;
-								super->i = lastInit;
-								$$ = super; 
+			   					printf("we are here \n");
+								$$=$1;
 							}
 			   	| initialized_declarator_list ',' initialized_declarator {
-												struct superSpec * super = $1;
-												struct init * previous = $1->i;
-												struct init * newInit = malloc(sizeof(struct init));
-												newInit->value = strdup($3); 
-												newInit->next = previous;
-												super->i = newInit;
-												$$ = super;				
-											 }
-				
+												printf("PREVIOUS DECL name: %p \n",$1);
+												printf("CURRENT DECL name: %p \n",$3);
+												$$=$3;
+											}
 				;
 
 initialized_declarator: direct_declarator
@@ -227,36 +214,41 @@ declarator:	direct_declarator
 
 direct_declarator: 	simple_declarator
 		 	|'(' declarator ')' 
-			| function_declarator
 			| array_declarator
 		 	;
 
 simple_declarator:	IDENT {
-			
+		 		// grab super spec here.
+				// add this init
+				// then add type endNode
+				// then return super
+				// also add logic to check
+				// if there is another initialiaztion
+				printf("ident : %s\n", $1);
+				struct init * newInit = malloc(sizeof(struct init));
+				newInit->value = strdup($1); 	
+				// IT IS THIS LINE :(
+				struct superSpec * super = $<super>0;
+				struct initializedTypes * newType = malloc(sizeof(struct initializedTypes));
+				newType->t = super->generalType;
+				if ((super->i) == NULL){
+					printf("1\n");
+					newType->next = NULL;
+					newInit->next = NULL;
+					super->i = newInit;
+					super->initialType = newType;
+					printf("HELLO %d\n", (super->i) == NULL);
+				} else {
+					printf("2");
+					newType->next = super->initialType;
+					newInit->next = super->i;
+				}
+				super->i = newInit;
+				super->initialType = newType;
+				$$ = super;				
 		 	}
 		 	;
 	  	
-function_declarator:	direct_declarator '(' parameter_type_list ')'
-		   	| direct_declarator '(' identifier_list ')'
-			| direct_declarator '(' ')'
-			;
-
-parameter_type_list: 	parameter_list
-		   	| parameter_list ',' ELLIPSIS
-			;
-
-parameter_list:		parameter_declaration
-			| parameter_list ',' parameter_declaration
-			;
-
-parameter_declaration: 	declaration_specifier declarator
-		     	| declaration_specifier
-			;
-
-identifier_list: 	IDENT
-			| parameter_list ',' IDENT
-			;
-
 array_declarator:	direct_declarator '['']'
 			| direct_declarator '[' INT ']'
 			;
