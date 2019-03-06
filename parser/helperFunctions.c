@@ -5,7 +5,7 @@
 # include "parser.h"
 # include "cparser.tab.h"
 # include "types.h"
-	
+# include "typeTypes.h"	
 struct astnode * 
 newTerop(int nodetype, int op, struct astnode *l, struct astnode *c, struct astnode *r)
 {
@@ -331,16 +331,13 @@ enterNewVariable(struct scope *enteringScope, int nameSpace, struct superSpec * 
 		}
 		struct symbol * newSymbol = malloc(sizeof(struct symbol));
 		newSymbol->name = strdup(i->value);
-		printf("new init name: %s\n", i->value);
 		newSymbol->previous = enteringScope->last;
 		newSymbol->nameSpace = nameSpace;
 		newSymbol->definedScope = enteringScope;
 		newSymbol->sign = 1;
 		while(specs) {
 			val = specs->u.spec.val;
-			//printf("SPEC %d",val);
 			if (val == AUTO || val == EXTERN || val == REGISTER || val == STATIC){
-			 	printf("storage class");
 				newSymbol->storageClass = val;
 			}else if (val == CONST || val == VOLATILE || val == RESTRICT){
 				newSymbol->type_qualifier = val;
@@ -355,13 +352,27 @@ enterNewVariable(struct scope *enteringScope, int nameSpace, struct superSpec * 
 				currentType->t = ty;
 			}
 			specs = specs->u.spec.next;
-		}
+			
+		} 
 		// now got to resolve the type here.
 		// basically, we need to take the current 
 		// pointer to type use it and then move to the 
-		// next one 
-		newSymbol->type = currentType->t;
-	       	currentType = currentType->next;	
+		// next one
+		if (currentType){
+			// tack on the general type here...
+			struct initializedTypes * iT = currentType;
+			while(iT){
+				if(iT->t == NULL){
+					iT->t = super->generalType;	
+				}
+				iT = iT->next;	
+			}
+			newSymbol->type = currentType->t;
+			currentType = currentType->next;
+				
+		} else {
+			newSymbol->type = super->generalType;
+		}
 		enteringScope->last = newSymbol;
 		specs = super->s;
 		i = i->next;
@@ -375,6 +386,6 @@ printVariable(struct scope *enteringScope, int line, char * filenm)
 	// this function will print the most recent thing o nthe 
 	struct symbol * last = enteringScope->last;
 	if (last) {
-		printf("YO! FILENAME:%s line: %d \n\t NameSpace:%d, StorageClass:%d, type:%d, type_qualifier:%d, sign:%d,\n\t name:%s\n",filenm, line, last->nameSpace, last->storageClass, last->type->u.spec.val, last->type_qualifier, last->sign, last->name);
+		printf("YO! FILENAME:%s line: %d \n\t NameSpace:%d, StorageClass:%d, type:%d, type_qualifier:%d, sign:%d,\n\t name:%s size:%d\n",filenm, line, last->nameSpace, last->storageClass, last->type->u.spec.val, last->type_qualifier, last->sign, last->name, last->type->u.spec.size);
 	} 
 }

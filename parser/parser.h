@@ -59,6 +59,7 @@ struct astnode_string {
 
 struct astnode_spec {
 		int val;
+		int size;
 		struct astnode * next; 
 };
 
@@ -124,7 +125,7 @@ struct initializedTypes{
 
 struct smallSpec{
 	char * value;
-	struct initializedTypes * next;
+	struct initializedTypes * types;
 };
 
 struct astnode *newBinop(int nodetype, int op, struct astnode *l, struct astnode *r);

@@ -14,7 +14,7 @@
 # include "ops.h"
 # include "namespace.h"
 # include "types.h"
-
+# include "typeTypes.h"
 char file_name[300];
 int line;
 %}
@@ -24,6 +24,7 @@ int line;
 	struct astnode *a;
 	struct listarg *l;
 	struct superSpec *super;
+	struct smallSpec *small;
 	int integer;
 	char *value;
 	float f;
@@ -107,7 +108,8 @@ int line;
 
 
 %type <a> exp unary_expression primary_expression numbers characters constant parenthesized_expression cast_expression postfix_expression binary_expression ternary_expression assignment_expression comma_expression type_name declaration_spec 
-%type <super> declaration_specifier initialized_declarator_list decl simple_declarator initialized_declarator
+%type <super> declaration_specifier initialized_declarator_list decl
+%type <small> simple_declarator initialized_declarator direct_declarator array_declarator declarator
 %type <l> expression_list
 %type <integer> type_n type_qualifier storage_class_specifier specs 
 
@@ -140,9 +142,8 @@ decl:   	declaration_specifier initialized_declarator_list ';' {
 										escope->last = NULL;
 										escope->next = NULL;
 										escope->previous = NULL;
-										printf("PARENT DECL name: %s \n",$2->i->value);
 										enterNewVariable(escope,GLOBALSCOPE,$2);
-										//printVariable(escope,line, file_name);
+										printVariable(escope,line, file_name);
 										
 										}
 	  	;
@@ -196,13 +197,27 @@ specs: 	storage_class_specifier
 	;
 
 initialized_declarator_list:	initialized_declarator {
-			   					printf("we are here \n");
-								$$=$1;
-							}
+			   					struct superSpec * super = $<super>0;
+								struct init * i = malloc(sizeof(struct init));
+								i->value = $1->value;
+								i->next = NULL;
+								super->i = i;
+								super->initialType = $1->types; 
+								$$=super;	
+						}
 			   	| initialized_declarator_list ',' initialized_declarator {
-												printf("PREVIOUS DECL name: %p \n",$1);
-												printf("CURRENT DECL name: %p \n",$3);
-												$$=$3;
+												// add the new initialized_declarator to 
+												// the super spec
+												struct superSpec * super = $1;
+												struct init * new = malloc(sizeof(struct init));
+												// get the new init
+												new->value = $3->value;
+												new->next = super->i;
+												super->i = new;
+												// get the new inital type
+												struct initializedTypes * newTypes = $3->types;
+												newTypes->next = super->initialType;
+												super->initialType = newTypes->next; 
 											}
 				;
 
@@ -213,44 +228,48 @@ declarator:	direct_declarator
 	  	;
 
 direct_declarator: 	simple_declarator
-		 	|'(' declarator ')' 
+		 	|'(' declarator ')' {$$= $2;}
 			| array_declarator
 		 	;
 
 simple_declarator:	IDENT {
-		 		// grab super spec here.
-				// add this init
-				// then add type endNode
-				// then return super
-				// also add logic to check
-				// if there is another initialiaztion
-				printf("ident : %s\n", $1);
-				struct init * newInit = malloc(sizeof(struct init));
-				newInit->value = strdup($1); 	
-				// IT IS THIS LINE :(
-				struct superSpec * super = $<super>0;
-				struct initializedTypes * newType = malloc(sizeof(struct initializedTypes));
-				newType->t = super->generalType;
-				if ((super->i) == NULL){
-					printf("1\n");
-					newType->next = NULL;
-					newInit->next = NULL;
-					super->i = newInit;
-					super->initialType = newType;
-					printf("HELLO %d\n", (super->i) == NULL);
-				} else {
-					printf("2");
-					newType->next = super->initialType;
-					newInit->next = super->i;
+				 struct smallSpec * starter = malloc(sizeof(struct smallSpec));
+				 struct initializedTypes * types = malloc(sizeof(struct initializedTypes)); 
+				 types->t = NULL;
+				 types->next = NULL;
+				 starter->value = strdup($1);
+				 starter->types = types;
+				 $$ = starter;			
 				}
-				super->i = newInit;
-				super->initialType = newType;
-				$$ = super;				
-		 	}
 		 	;
 	  	
-array_declarator:	direct_declarator '['']'
-			| direct_declarator '[' INT ']'
+array_declarator:	direct_declarator '['']' {
+							struct smallSpec * direct_decl = $1;
+							struct initializedTypes * previous = direct_decl->types;
+							// create new type here that has to do with arrays of unknown size
+							struct astnode * arrayType = malloc(sizeof(struct astnode));
+							struct initializedTypes * new = malloc(sizeof(struct initializedTypes));
+							arrayType->u.spec.val = ARRAYTYPE;
+							arrayType->u.spec.size = -1;
+							new->t = arrayType;
+							new->next = previous;
+							direct_decl->types = new; 
+							$$ = direct_decl;
+							}
+			| direct_declarator '[' INT ']' {
+							struct smallSpec * direct_decl = $1;
+							struct initializedTypes * previous = direct_decl->types;
+							// create new type here that has to do with arrays of unknown size
+							struct astnode * arrayType = malloc(sizeof(struct astnode));
+							struct initializedTypes * new = malloc(sizeof(struct initializedTypes));
+							arrayType->u.spec.val = ARRAYTYPE;
+							arrayType->u.spec.size = $3;
+							new->t = arrayType;
+							new->next = previous;
+							direct_decl->types = new; 
+							$$ = direct_decl;
+
+							}
 			;
 
 
