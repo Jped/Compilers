@@ -361,9 +361,11 @@ enterNewVariable(struct scope *enteringScope, int nameSpace, struct superSpec * 
 		if (currentType){
 			// tack on the general type here...
 			struct initializedTypes * iT = currentType;
+			
 			while(iT){
 				if(iT->t == NULL){
 					iT->t = super->generalType;	
+					break;
 				}
 				iT = iT->next;	
 			}

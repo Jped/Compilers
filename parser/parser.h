@@ -57,10 +57,14 @@ struct astnode_string {
 
 };
 
+
 struct astnode_spec {
 		int val;
 		int size;
 		struct astnode * next; 
+		// we create a new symbol table for 
+		// parameters to the function...
+		struct symbol * params;
 };
 
 
@@ -95,7 +99,6 @@ struct symbol{
 	int type_qualifier;
 	int sign;
 	char* name;
-	struct astnode_fn * parameters;
 	struct symbol * previous;
 	struct scope * definedScope;
 
@@ -106,7 +109,7 @@ struct superSpec{
 	// doing this so that we can seperate
 	// the type portion of speceifiers from
 	// the other stuff...
-	struct astnode * s;
+	struct astnode *s;
 	struct initializedTypes * initialType;
 	struct init * i;
 	struct astnode * generalType;

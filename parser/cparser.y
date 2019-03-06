@@ -15,6 +15,7 @@
 # include "namespace.h"
 # include "types.h"
 # include "typeTypes.h"
+# include "paramTypes.h"
 char file_name[300];
 int line;
 %}
@@ -25,6 +26,7 @@ int line;
 	struct listarg *l;
 	struct superSpec *super;
 	struct smallSpec *small;
+	struct listarg * params;
 	int integer;
 	char *value;
 	float f;
@@ -109,9 +111,10 @@ int line;
 
 %type <a> exp unary_expression primary_expression numbers characters constant parenthesized_expression cast_expression postfix_expression binary_expression ternary_expression assignment_expression comma_expression type_name declaration_spec 
 %type <super> declaration_specifier initialized_declarator_list decl
-%type <small> simple_declarator initialized_declarator direct_declarator array_declarator declarator
+%type <small> simple_declarator initialized_declarator direct_declarator array_declarator declarator function_declarator
 %type <l> expression_list
 %type <integer> type_n type_qualifier storage_class_specifier specs 
+%type <params> identifier_list parameter_list parameter_declaration parameter_type_list 
 
 %left LOGOR
 %left LOGAND
@@ -183,6 +186,7 @@ declaration_specifier:	declaration_spec {
 								 }
 			;
 
+
 declaration_spec: 		specs {
 					struct astnode * spec = malloc(sizeof(struct astnode));
 					spec->nodetype = SPEC;
@@ -202,7 +206,7 @@ initialized_declarator_list:	initialized_declarator {
 								i->value = $1->value;
 								i->next = NULL;
 								super->i = i;
-								super->initialType = $1->types; 
+								super->initialType = $1->types;
 								$$=super;	
 						}
 			   	| initialized_declarator_list ',' initialized_declarator {
@@ -217,7 +221,8 @@ initialized_declarator_list:	initialized_declarator {
 												// get the new inital type
 												struct initializedTypes * newTypes = $3->types;
 												newTypes->next = super->initialType;
-												super->initialType = newTypes->next; 
+												super->initialType = newTypes; 
+
 											}
 				;
 
@@ -229,8 +234,9 @@ declarator:	direct_declarator
 
 direct_declarator: 	simple_declarator
 		 	|'(' declarator ')' {$$= $2;}
+			| function_declarator
 			| array_declarator
-		 	;
+			;
 
 simple_declarator:	IDENT {
 				 struct smallSpec * starter = malloc(sizeof(struct smallSpec));
@@ -266,12 +272,88 @@ array_declarator:	direct_declarator '['']' {
 							arrayType->u.spec.size = $3;
 							new->t = arrayType;
 							new->next = previous;
-							direct_decl->types = new; 
+							direct_decl->types = new;
 							$$ = direct_decl;
 
 							}
 			;
 
+function_declarator:	direct_declarator '(' parameter_type_list ')' {
+		   							struct smallSpec * direct_decl = $1;
+									struct initializedTypes * previous = direct_decl->types;
+									struct astnode * fnType = malloc(sizeof(struct astnode));
+									struct initializedTypes * new = malloc(sizeof(struct initializedTypes));
+									fnType->u.spec.val = FNTYPE;
+									fnType->u.spec.params = $3;
+									new->t = fnType;
+									new->next = previous;
+									direct_decl->types = new; 
+									$$ = direct_decl;		
+								      }
+		   	| direct_declarator '(' identifier_list ')' {
+									struct smallSpec * direct_decl = $1;
+									struct initializedTypes * previous = direct_decl->types;
+									struct astnode * fnType = malloc(sizeof(struct astnode));
+									struct initializedTypes * new = malloc(sizeof(struct initializedTypes));
+									fnType->u.spec.val = FNTYPE;
+									fnType->u.spec.params = $3;
+									new->t = fnType;
+									new->next = previous;
+									direct_decl->types = new; 
+									$$ = direct_decl;	
+								    }
+			| direct_declarator '(' ')' {
+							struct smallSpec * direct_decl = $1;
+							struct initializedTypes * previous = direct_decl->types;
+							struct astnode * fnType = malloc(sizeof(struct astnode));
+							struct initializedTypes * new = malloc(sizeof(struct initializedTypes));
+							fnType->u.spec.val = FNTYPE;
+							fnType->u.spec.params = NULL;
+							new->t = fnType;
+							new->next = previous;
+							direct_decl->types = new; 
+							$$ = direct_decl;	
+						    }
+			;
+
+parameter_type_list: 	parameter_list
+		   	| parameter_list ',' ELLIPSIS
+			;
+
+parameter_list:		parameter_declaration
+			| parameter_list ',' parameter_declaration
+			;
+
+parameter_declaration: 	declaration_specifiers declarator
+		     	| declaration_specifiers
+			;
+
+identifier_list: 	IDENT {
+	       			 struct listarg * params = malloc(sizeof(struct listarg));
+				 params->size = 1;
+			         params->nodetype = IDENTPARAM;
+				 params->next = NULL;
+				 params->previous = NULL;
+				 params->start = params;
+				 struct astnode *b;
+				 b = newIdent(IDENT_OP, $1);
+				 params->ast = b;
+				 $$ = params;
+	       			}
+			| parameter_list ',' IDENT {
+							 struct listarg * params = malloc(sizeof(struct listarg));
+							 params->size = $1->size + 1;
+							 params->nodetype = IDENTPARAM;
+							 params->next = NULL;
+							 params->previous = $1;
+							 $1->next = params;
+							 params->start = $1->start;
+							 struct astnode *b;
+							 b = newIdent(IDENT_OP, $3);
+							 params->ast = b;
+							 $$ = params;			
+						   }
+			;
 
 storage_class_specifier:	AUTO {$$=AUTO;}
 				| EXTERN {$$=EXTERN;}

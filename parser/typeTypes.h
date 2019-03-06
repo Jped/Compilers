@@ -1,3 +1,4 @@
 enum typeTypes{
-	ARRAYTYPE=1
+	ARRAYTYPE=1,
+	FNTYPE=2
 };
