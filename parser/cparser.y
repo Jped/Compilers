@@ -18,6 +18,7 @@
 # include "paramTypes.h"
 char file_name[300];
 int line;
+struct scope * currentScope;
 %}
 
 
@@ -26,7 +27,9 @@ int line;
 	struct listarg *l;
 	struct superSpec *super;
 	struct smallSpec *small;
-	struct listarg * params;
+	struct symbol * params;
+	struct scope * scope;
+	struct initializedTypes * initType;
 	int integer;
 	char *value;
 	float f;
@@ -106,16 +109,16 @@ int line;
 %token SIZEOF
 %token VOLATILE
 %token TYPEDEF
-%token <string_literal> FILEN
+%token <string_literal> FILEN 
 
 
-%type <a> exp unary_expression primary_expression numbers characters constant parenthesized_expression cast_expression postfix_expression binary_expression ternary_expression assignment_expression comma_expression type_name declaration_spec 
-%type <super> declaration_specifier initialized_declarator_list decl
-%type <small> simple_declarator initialized_declarator direct_declarator array_declarator declarator function_declarator
+%type <a> exp unary_expression primary_expression numbers characters constant parenthesized_expression cast_expression postfix_expression binary_expression ternary_expression assignment_expression comma_expression type_name declaration_spec pointer type_qualifier_list union_type_definition union_type_specifier structure_type_specifier structure_type_definition
+%type <super> declaration_specifier initialized_declarator_list decl component_declaration component_declarator_list 
+%type <small> simple_declarator initialized_declarator direct_declarator array_declarator declarator function_declarator pointer_declarator
 %type <l> expression_list
 %type <integer> type_n type_qualifier storage_class_specifier specs 
-%type <params> identifier_list parameter_list parameter_declaration parameter_type_list 
-
+%type <params>  parameter_list parameter_declaration parameter_type_list struct_definition union_definition 
+%type <scope> field_list
 %left LOGOR
 %left LOGAND
 %left '|'
@@ -132,24 +135,39 @@ int line;
 
 %%
 
-decl_or_stmt: 	declaration {printf(">");}
+decl_or_stmt: 	declaration 
 		| statement
+		| declaration decl_or_stmt 
+		| statement decl_or_stmt
+		| '{' decl_or_stmt 	{
+				printf("adding a new scope");
+				// add a new scope here...
+			 	currentScope = newSymbolTable(currentScope);	
+			}
+		| '}' decl_or_stmt	{
+				// pop out of current scope. 
+				// also verify that you are not in the outermost scope
+				if (currentScope->previous){
+					struct scope * old = currentScope->previous;
+					destroySymbolTable(currentScope);
+					currentScope = old;
+				}else{
+					yyerror("There is no scope to pop out of, unbalanced brackets");
+				}
+			}
 		;
 
 declaration:	decl
-	     	| declaration decl
 		;
 
-decl:   	declaration_specifier initialized_declarator_list ';' {
-	   									struct scope * escope = malloc(sizeof(struct scope));
-										escope->last = NULL;
-										escope->next = NULL;
-										escope->previous = NULL;
-										enterNewVariable(escope,GLOBALSCOPE,$2);
-										printVariable(escope,line, file_name);
+decl:   	declaration_specifier initialized_declarator_list ';' 	{
+										enterNewVariable(currentScope,OTHERSPACE,$2);
+										printVariable(currentScope,line, file_name);
 										
-										}
-	  	;
+									}
+		| structure_type_specifier
+		| union_type_specifier
+		;
 
 declaration_specifier:	declaration_spec { 
 		     			 	struct superSpec * lastSpec = malloc(sizeof(struct superSpec));
@@ -207,8 +225,8 @@ initialized_declarator_list:	initialized_declarator {
 								i->next = NULL;
 								super->i = i;
 								super->initialType = $1->types;
-								$$=super;	
-						}
+								$$=super;		
+							}
 			   	| initialized_declarator_list ',' initialized_declarator {
 												// add the new initialized_declarator to 
 												// the super spec
@@ -226,17 +244,80 @@ initialized_declarator_list:	initialized_declarator {
 											}
 				;
 
-initialized_declarator: direct_declarator
+initialized_declarator: declarator
 			;
 
-declarator:	direct_declarator
+declarator:	pointer_declarator
+	  	| direct_declarator
 	  	;
+
 
 direct_declarator: 	simple_declarator
 		 	|'(' declarator ')' {$$= $2;}
 			| function_declarator
-			| array_declarator
+			| array_declarator	
 			;
+
+pointer_declarator:	pointer direct_declarator {
+							// direct_declarator returns a smallSpec
+	  						// pointers will return intialized type.
+							// this thing has to return at smallSpec
+						  	struct smallSpec * direct_decl = $2;
+							struct initializedTypes * old = direct_decl->types;	
+							struct astnode * newPointerTypes = $1;
+							// go to end of newPointerTypes and tack in old...
+							// got a major type  problem going on here.
+							// newPointerTypes is a pointer to astnode, while old is an initialzied type
+							struct initializedTypes * new = malloc(sizeof(struct initializedTypes));
+							newPointerTypes->u.spec.next = old->t;
+							new->t = newPointerTypes;
+							direct_decl->types = new;
+							$$ = direct_decl;
+						}
+			;
+
+pointer:	'*' {	
+   		        struct astnode * pntr = addInitType(TYPE,PNTRTYPE,NULL);	
+			$$ =pntr;
+			
+       		    }
+       		| '*' type_qualifier_list {
+							// here and the next one we need to build the pntr node to include the type qualifiers
+							// this should all be done with the addInitType function
+   		        				struct astnode * pntr =  addInitType(TYPE,PNTRTYPE,$2);	
+							$$ =pntr;
+
+		 				}
+		| '*' type_qualifier_list pointer {
+   		    					struct astnode * pntr = addInitType(TYPE,PNTRTYPE,$2);
+							pntr->u.spec.next = $3;
+							$$ =pntr;
+
+						  }
+		| '*' pointer{
+   		    		struct astnode * pntr = addInitType(TYPE,PNTRTYPE,NULL);	
+				pntr->u.spec.next = $2;
+				$$ = pntr;
+
+				}
+		;
+
+type_qualifier_list: 	type_qualifier {
+						// what I got to do here is start building the astnode
+						struct astnode * initType = malloc(sizeof(struct astnode));
+						initType->u.spec.val = $1;
+						$$ =initType;
+
+					}
+		   	| type_qualifier_list type_qualifier {
+								struct astnode * previousInit = $1;
+								struct astnode * newInit = malloc(sizeof(struct astnode));
+								newInit->u.spec.next = previousInit;
+								newInit->u.spec.val = $2;
+								$$ =newInit;
+							     }
+			;
+
 
 simple_declarator:	IDENT {
 				 struct smallSpec * starter = malloc(sizeof(struct smallSpec));
@@ -283,26 +364,24 @@ function_declarator:	direct_declarator '(' parameter_type_list ')' {
 									struct initializedTypes * previous = direct_decl->types;
 									struct astnode * fnType = malloc(sizeof(struct astnode));
 									struct initializedTypes * new = malloc(sizeof(struct initializedTypes));
+									struct symbol * topSymbol = $3;	
+									struct symbol * prevs = NULL;
+									struct symbol * next;
 									fnType->u.spec.val = FNTYPE;
-									fnType->u.spec.params = $3;
+									// reverse the order here! 
+									while(topSymbol->previous){
+										next = topSymbol->previous;
+										topSymbol->previous = prevs;
+										prevs = topSymbol;
+										topSymbol = next;
+									}
+									fnType->u.spec.params = topSymbol;
 									new->t = fnType;
 									new->next = previous;
 									direct_decl->types = new; 
 									$$ = direct_decl;		
 								      }
-		   	| direct_declarator '(' identifier_list ')' {
-									struct smallSpec * direct_decl = $1;
-									struct initializedTypes * previous = direct_decl->types;
-									struct astnode * fnType = malloc(sizeof(struct astnode));
-									struct initializedTypes * new = malloc(sizeof(struct initializedTypes));
-									fnType->u.spec.val = FNTYPE;
-									fnType->u.spec.params = $3;
-									new->t = fnType;
-									new->next = previous;
-									direct_decl->types = new; 
-									$$ = direct_decl;	
-								    }
-			| direct_declarator '(' ')' {
+		   	| direct_declarator '(' ')' {
 							struct smallSpec * direct_decl = $1;
 							struct initializedTypes * previous = direct_decl->types;
 							struct astnode * fnType = malloc(sizeof(struct astnode));
@@ -317,43 +396,31 @@ function_declarator:	direct_declarator '(' parameter_type_list ')' {
 			;
 
 parameter_type_list: 	parameter_list
-		   	| parameter_list ',' ELLIPSIS
 			;
 
 parameter_list:		parameter_declaration
-			| parameter_list ',' parameter_declaration
+			| parameter_list ',' parameter_declaration {
+								   	struct symbol * top = $1;
+									struct symbol * new = $3;
+									new->previous = top;
+									$$ = new;
+								   }
 			;
 
-parameter_declaration: 	declaration_specifiers declarator
-		     	| declaration_specifiers
-			;
-
-identifier_list: 	IDENT {
-	       			 struct listarg * params = malloc(sizeof(struct listarg));
-				 params->size = 1;
-			         params->nodetype = IDENTPARAM;
-				 params->next = NULL;
-				 params->previous = NULL;
-				 params->start = params;
-				 struct astnode *b;
-				 b = newIdent(IDENT_OP, $1);
-				 params->ast = b;
-				 $$ = params;
-	       			}
-			| parameter_list ',' IDENT {
-							 struct listarg * params = malloc(sizeof(struct listarg));
-							 params->size = $1->size + 1;
-							 params->nodetype = IDENTPARAM;
-							 params->next = NULL;
-							 params->previous = $1;
-							 $1->next = params;
-							 params->start = $1->start;
-							 struct astnode *b;
-							 b = newIdent(IDENT_OP, $3);
-							 params->ast = b;
-							 $$ = params;			
-						   }
-			;
+parameter_declaration: 	declaration_specifier declarator {
+		     						// declaration_specifier returns a super.
+								// declarator returns a smallspec
+								struct superSpec * super = $1;
+								struct smallSpec * small = $2;
+								struct init * i = malloc(sizeof(struct init));
+								i->value = small->value;
+								i->next = NULL;
+								super->i = i;
+								super->initialType = small->types;
+								enterNewVariable(currentScope, OTHERSPACE, super);
+								$$ = currentScope->last;
+ 							  }
+		     	;
 
 storage_class_specifier:	AUTO {$$=AUTO;}
 				| EXTERN {$$=EXTERN;}
@@ -368,6 +435,113 @@ type_qualifier:	CONST {$$=CONST;}
 		| SIGNED {$$=SIGNED;}
 		| UNSIGNED {$$=UNSIGNED;}
 		;
+
+structure_type_specifier:	structure_type_definition
+				;
+
+structure_type_definition:	struct_definition '{'field_list '}' {
+			 							// need to enter into the symbol table over here.
+										// field list must return a stack of symbols? (or mayb
+										// a paramter list) 
+										struct astnode * structType = malloc(sizeof(struct astnode));
+										struct symbol * structSymbol = $1;
+										structType->nodetype = TYPE;
+										structType->u.spec.val = STRUCTTYPE ;
+										structType->u.spec.params = $3->last;	
+										structSymbol->type = structType;
+										structSymbol->previous = currentScope->last;
+										structSymbol->definedScope = currentScope;
+										currentScope->last = structSymbol;
+										$$ = structType;
+										printVariable(currentScope,line, file_name);
+									}
+				;
+
+
+struct_definition: 	STRUCT IDENT 	{
+						struct symbol * structSymbol = malloc(sizeof(struct symbol));
+						structSymbol->nameSpace = STRUCTSPACE;	
+						structSymbol->name = strdup($2);
+						$$=structSymbol;	
+					}
+		 	;
+
+union_type_specifier:	union_type_definition
+		    	;
+
+union_type_definition: union_definition '{' field_list '}' 	{
+									struct astnode * unionType = malloc(sizeof(struct astnode));
+									struct symbol * unionSymbol = $1;
+									unionType->nodetype = TYPE;
+									unionType->u.spec.val = UNIONTYPE ;
+									unionType->u.spec.params = $3->last;	
+									unionSymbol->type = unionType;
+									unionSymbol->previous = currentScope->last;
+									unionSymbol->definedScope = currentScope;
+									currentScope->last = unionSymbol;
+									$$ = unionType;
+									printVariable(currentScope,line, file_name);
+
+								}
+		      ;
+
+union_definition: UNION IDENT 	{
+					struct symbol * unionSymbol = malloc(sizeof(struct symbol));
+					unionSymbol->nameSpace = STRUCTSPACE;	
+					unionSymbol->name = strdup($2);
+					$$=unionSymbol;	
+	
+				
+				};
+
+
+field_list:	component_declaration {
+	  				// here we create the entering scope	
+				      	struct scope * newScope = malloc(sizeof(struct scope));
+					// then we take the new symbold and add it to the last of this new scope
+					enterNewVariable(newScope,STRUCTSPACE,$1);		
+					$$ = newScope; 
+				      }
+	  	| field_list component_declaration	{
+								// here we add the symbol to the correct scope and link
+								// it to the previous symbol
+								struct scope * structScope = $1;
+								enterNewVariable(structScope,STRUCTSPACE,$2);
+								$$ = structScope;
+							}
+		;	
+
+component_declaration: type_name component_declarator_list ';' 	{
+									$2->generalType = $1;
+									$$ = $2;
+								}
+			| structure_type_specifier component_declarator_list ';' 	{
+												$2->generalType = $1;
+											}
+		     	| union_type_specifier component_declarator_list ';' 	{
+											$2->generalType = $1;
+										};
+
+component_declarator_list:	declarator 	{
+							struct superSpec * super = malloc(sizeof(struct superSpec));
+							struct init * i = malloc(sizeof(struct init));
+							i->value = $1->value;
+							i->next = NULL;
+							super->i = i;
+							super->initialType = $1->types;
+							$$=super;
+						}
+			 	| component_declarator_list ',' declarator 	{
+												struct superSpec * super = $1;
+												struct init * new = malloc(sizeof(struct init));
+												new->value = $3->value;
+												new->next = super->i;
+												super->i = new;
+												struct initializedTypes * newTypes = $3->types;
+												newTypes->next = super->initialType;
+												super->initialType = newTypes; 
+										}
+				;
 
 
 statement:	exp_stm
@@ -510,7 +684,50 @@ type_name:	type_n {
 			simpleType->u.spec.val = $1;
 			$$ = simpleType;
 			}
-	 	;
+	 	
+		
+		| struct_definition 		{
+					
+						char * ident = $1->name;
+						struct symbol * queriedStruct = findSymbol(currentScope, ident, STRUCTSPACE);	
+						if (queriedStruct){
+							// make sure it is a struct and not a union
+							if(queriedStruct->type->u.spec.val == STRUCTTYPE){
+								$$ = queriedStruct->type;	
+							} else {
+								yyerror("You are trying to reference a union as a struct");
+							}
+						}else{
+							// so here we need to create incomplete type, and then eventually
+							// verify if it is good or not.
+							struct astnode * incompleteType = malloc(sizeof(struct astnode));
+							incompleteType->nodetype = TYPE;
+							incompleteType->u.spec.val = INCOMPLETETYPE;
+							incompleteType->u.spec.incompleteName = strdup(ident);
+							$$ = incompleteType;	
+						}
+					}
+		| union_definition 	{
+						char * ident = $1->name;
+						struct symbol * queriedUnion = findSymbol(currentScope, ident, STRUCTSPACE);	
+						if (queriedUnion){
+							// make sure it is a struct and not a union
+							if(queriedUnion->type->u.spec.val == UNIONTYPE){
+								$$ = queriedUnion->type;	
+							} else {
+								yyerror("You are trying to reference a struct as a union");
+							}
+						}else{
+							// so here we need to create incomplete type, and then eventually
+							// verify if it is good or not.
+							struct astnode * incompleteType = malloc(sizeof(struct astnode));
+							incompleteType->nodetype = TYPE;
+							incompleteType->u.spec.val = INCOMPLETEUNION;
+							incompleteType->u.spec.incompleteName = strdup(ident);
+							$$ = incompleteType;	
+						}		
+					}
+		;
 
 type_n: 	SHORT {$$=SHORT;}
 	 	| INTEGER {$$=INTEGER;}

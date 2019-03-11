@@ -224,6 +224,11 @@ yyerror(char*s,...)
 int
 main()
 {
+	// need to create global scope here...
+	currentScope = malloc(sizeof(struct scope));	
+	currentScope->last = NULL;
+	currentScope->next = NULL;
+	currentScope->previous = NULL;
 	return yyparse();
 }
 
@@ -306,7 +311,7 @@ findSymbol(struct scope *lookingScope, char * name, int nameSpace)
 
 }
 
-void 
+void
 enterNewVariable(struct scope *enteringScope, int nameSpace, struct superSpec * super)
 {
 	// need to iterate over each of the initialized variables
@@ -317,66 +322,85 @@ enterNewVariable(struct scope *enteringScope, int nameSpace, struct superSpec * 
 			1. we check to see if this variable name is used in this name space
 			2. check if the type qualifier combination is allowed.
 	 */
+
+	// intialize val, to hold the int value of the new type/spec
 	int val;
+	//specs include all the decl specs
 	struct astnode * specs = super->s;
+	// i includes all the variables being initialized (ie compound intialization)
 	struct init * i = super->i;
+	// currentType gives you the add ons when you initialize a specefic variable, so 
+	// for example if you have int *p, q[10] it would have the information that p is
+	// a pointer and q is an array of 10
+
+
 	struct initializedTypes * currentType = super->initialType;
+	// right here we will do a quick check for incomplete types.
+	if (super->generalType && (super->generalType->u.spec.val == INCOMPLETETYPE || super->generalType->u.spec.val == INCOMPLETEUNION ) && (!currentType->t || currentType->t->u.spec.val != PNTRTYPE)){
+		yyerror("This type (%s) is incomplete and can not be used as a forward reference",super->generalType->u.spec.incompleteName);
+		goto FINISHED;
+	}
 	while (i) {
 		// look up variable name in scope right here
 		struct symbol * sameName = findSymbol(enteringScope, i->value, nameSpace);
 		if (sameName && sameName->definedScope == enteringScope){
 			//RAISE ERROR
-			yyerror("CONFLICTING SCOPES WITH VARIABLE: %s", i->value);
+			yyerror("YOU ALREADY USED THIS VARIABLE NAME IN THIS SCOPE: %s", i->value);
 			goto FINISHED;
 		}
 		struct symbol * newSymbol = malloc(sizeof(struct symbol));
+		struct astnode * typeNode = malloc(sizeof(struct astnode));
 		newSymbol->name = strdup(i->value);
+		newSymbol->type = typeNode;
 		newSymbol->previous = enteringScope->last;
 		newSymbol->nameSpace = nameSpace;
 		newSymbol->definedScope = enteringScope;
-		newSymbol->sign = 1;
+		typeNode->u.spec.sign = 1;
+		typeNode->nodetype = TYPE;
+		if (super->generalType){
+			typeNode->u.spec.val = super->generalType->u.spec.val;
+		} 
+		
 		while(specs) {
 			val = specs->u.spec.val;
 			if (val == AUTO || val == EXTERN || val == REGISTER || val == STATIC){
-				newSymbol->storageClass = val;
+				typeNode->u.spec.storageClass = val;
 			}else if (val == CONST || val == VOLATILE || val == RESTRICT){
-				newSymbol->type_qualifier = val;
+				typeNode->u.spec.type_qualifier = val;
 			}else if (val == UNSIGNED) {
-				newSymbol->sign = 0;
+				typeNode->u.spec.sign = 0;
 			}
 			if ((val == UNSIGNED || val == SIGNED) && super->generalType == NULL) {
 				// here we have to assign the type here to int.
-				struct astnode * ty = malloc(sizeof(struct astnode));
-				ty->nodetype = TYPE;
-			       	ty->u.spec.val = INTEGER;	
-				currentType->t = ty;
+			       	typeNode->u.spec.val = INTEGER;	
 			}
 			specs = specs->u.spec.next;
 			
-		} 
+		}
+	        if(typeNode->u.spec.val == 0){
+			yyerror("You did not pass in a type for %s", i->value);
+		       	goto FINISHED;	
+		}	
+
 		// now got to resolve the type here.
-		// basically, we need to take the current 
-		// pointer to type use it and then move to the 
-		// next one
-		if (currentType){
-			// tack on the general type here...
-			struct initializedTypes * iT = currentType;
-			
-			while(iT){
-				if(iT->t == NULL){
-					iT->t = super->generalType;	
+		// in other words we have the general type, but
+		// we now need to put in if it is a pointer or array
+		
+		if (currentType->t){
+			struct astnode * newType = currentType->t;
+			while(newType){
+				if(newType->u.spec.next == NULL){
+					newType->u.spec.next = typeNode;	
 					break;
 				}
-				iT = iT->next;	
+				newType = newType->u.spec.next;	
 			}
 			newSymbol->type = currentType->t;
 			currentType = currentType->next;
 				
-		} else {
-			newSymbol->type = super->generalType;
-		}
+		} 
 		enteringScope->last = newSymbol;
-		specs = super->s;
+		specs = super->s; 
 		i = i->next;
 	}
    FINISHED:;
@@ -388,6 +412,35 @@ printVariable(struct scope *enteringScope, int line, char * filenm)
 	// this function will print the most recent thing o nthe 
 	struct symbol * last = enteringScope->last;
 	if (last) {
-		printf("YO! FILENAME:%s line: %d \n\t NameSpace:%d, StorageClass:%d, type:%d, type_qualifier:%d, sign:%d,\n\t name:%s size:%d\n",filenm, line, last->nameSpace, last->storageClass, last->type->u.spec.val, last->type_qualifier, last->sign, last->name, last->type->u.spec.size);
+		struct astnode * a = last->type;
+		printf("YO! FILENAME:%s line: %d \n\t NameSpace:%d, StorageClass:%d, type:%d, type_qualifier:%d, sign:%d,\n\t name:%s size:%d\n",filenm, line, last->nameSpace, a->u.spec.storageClass, a->u.spec.val, a->u.spec.type_qualifier, a->u.spec.sign, last->name, a->u.spec.size);
 	} 
 }
+
+struct  astnode *
+addInitType(int nodetype, int newVal, struct astnode * decl_specs)
+{
+	// creat new astnode
+	struct astnode * newAst = malloc(sizeof(struct astnode));
+
+	// initiate its nodeType
+	newAst->nodetype = nodetype;	
+	
+	// initiate its type value
+	newAst->u.spec.val = newVal;
+	
+	// add the decleration specs nad make sure it is legal	
+	int val;		
+	while(decl_specs) {
+		val  = decl_specs->u.spec.val;
+		// this is technically wrong because it can have all three of these
+		// but we dont really need to worry for them in our compiler so I will 
+		// keep it like this for now and will fix if i have early time
+		if (val == CONST || val == VOLATILE || val == RESTRICT){
+			newAst->u.spec.type_qualifier = val;
+		}
+		decl_specs = decl_specs->u.spec.next;
+		
+	} 	
+	return newAst;
+} 

@@ -3,6 +3,7 @@
 extern int yylineno;
 extern char file_name[300];
 extern int line;
+extern struct scope * currentScope;
 
 struct listarg {
 	int size;
@@ -62,6 +63,10 @@ struct astnode_spec {
 		int val;
 		int size;
 		struct astnode * next; 
+		int storageClass;
+		int type_qualifier;
+		int sign;
+		char * incompleteName;
 		// we create a new symbol table for 
 		// parameters to the function...
 		struct symbol * params;
@@ -93,15 +98,12 @@ struct scope{
 };
 
 struct symbol{
+
 	int nameSpace;
-	int storageClass;
 	struct  astnode * type;
-	int type_qualifier;
-	int sign;
 	char* name;
 	struct symbol * previous;
 	struct scope * definedScope;
-
 
 };
 
@@ -148,5 +150,5 @@ void destroySymbolTable(struct scope *s);
 struct symbol *findSymbol(struct scope *lookingScope, char * name,int nameSpace);
 void enterNewVariable(struct scope *enteringScope,int nameSpace, struct superSpec * super);
 void printVariable(struct scope *enteringScope, int line, char * filenm);
-
+struct astnode *addInitType(int nodeType, int newVal, struct astnode * next); 
 
