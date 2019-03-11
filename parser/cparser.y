@@ -140,9 +140,8 @@ struct scope * currentScope;
 decl_or_stmt: 	declaration 
 		| statement
 		| declaration decl_or_stmt 
-		| statement decl_or_stmt
 		| block
-		| block decl_or_stmt
+		| block decl_or_stmt 
 		;
 
 block: '{'  	{
@@ -557,7 +556,7 @@ exp_stm: exp ';' {};
 exp:	 comma_expression {$$ = $1;}
 	;
 
-primary_expression:	| IDENT {
+primary_expression:	 IDENT {
 			  		// look for this ident in the symbol table
 					struct symbol * ident = findSymbol(currentScope, $1, OTHERSPACE);			
 					struct astnode * symb = malloc(sizeof(struct astnode));
@@ -606,7 +605,7 @@ parenthesized_expression:	'(' exp ')' {$$=$2;}
 cast_expression:	unary_expression {$$=$1;}
 			;
 
-postfix_expression:	/*primary_expression {$$=$1;}*/
+postfix_expression:	primary_expression {$$=$1;}
 			| postfix_expression '[' exp ']' {
 								struct astnode *b;
 								b = newBinop(SIMPLE_BNOP,'+',$1,$3);
