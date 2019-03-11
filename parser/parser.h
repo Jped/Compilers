@@ -73,6 +73,16 @@ struct astnode_spec {
 };
 
 
+struct symbol{
+
+	int nameSpace;
+	struct  astnode * type;
+	char* name;
+	struct symbol * previous;
+	struct scope * definedScope;
+
+};
+
 struct astnode {
 	int nodetype;
 	union astnodes {
@@ -84,6 +94,7 @@ struct astnode {
 		struct astnode_num num;
 		struct astnode_string string;
 		struct astnode_spec spec;
+		struct symbol * symbol;
 	} u;
 	
 };
@@ -92,20 +103,12 @@ struct astnode {
 
 
 struct scope{
+	int scopeType;
 	struct scope * previous;
 	struct scope * next;
 	struct symbol * last;
 };
 
-struct symbol{
-
-	int nameSpace;
-	struct  astnode * type;
-	char* name;
-	struct symbol * previous;
-	struct scope * definedScope;
-
-};
 
 struct superSpec{
 	// doing this so that we can seperate
@@ -145,8 +148,8 @@ struct listarg *newList(int nodetype, struct astnode *a);
 void printast(struct astnode *a,int level);
 void printarg(struct listarg *l, int level);
 char * token2name(int token);
-struct scope *newSymbolTable(struct scope * currentScope);
-void destroySymbolTable(struct scope *s);
+struct scope *newSymbolTable(struct scope * currentScope, int scopeType);
+struct scope *destroySymbolTable(struct scope *s);
 struct symbol *findSymbol(struct scope *lookingScope, char * name,int nameSpace);
 void enterNewVariable(struct scope *enteringScope,int nameSpace, struct superSpec * super);
 void printVariable(struct scope *enteringScope, int line, char * filenm);

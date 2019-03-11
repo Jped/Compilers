@@ -16,6 +16,8 @@
 # include "types.h"
 # include "typeTypes.h"
 # include "paramTypes.h"
+# include "scopeTypes.h"
+
 char file_name[300];
 int line;
 struct scope * currentScope;
@@ -139,18 +141,19 @@ decl_or_stmt: 	declaration
 		| statement
 		| declaration decl_or_stmt 
 		| statement decl_or_stmt
-		| '{' decl_or_stmt 	{
-				printf("adding a new scope");
+		| block
+		| block decl_or_stmt
+		;
+
+block: '{'  	{
 				// add a new scope here...
-			 	currentScope = newSymbolTable(currentScope);	
+			 	currentScope = newSymbolTable(currentScope, BLOCKSCOPE);	
 			}
-		| '}' decl_or_stmt	{
+		| '}' {
 				// pop out of current scope. 
 				// also verify that you are not in the outermost scope
 				if (currentScope->previous){
-					struct scope * old = currentScope->previous;
-					destroySymbolTable(currentScope);
-					currentScope = old;
+					currentScope = destroySymbolTable(currentScope);
 				}else{
 					yyerror("There is no scope to pop out of, unbalanced brackets");
 				}
@@ -545,19 +548,28 @@ component_declarator_list:	declarator 	{
 
 
 statement:	exp_stm
-	 	| exp_stm_list exp_stm
+	 	|statement exp_stm
 		;
 
-exp_stm_list:	exp_stm 
-		| exp_stm_list exp_stm
-		;
 
-exp_stm: exp ';' {printast($1,0); printf("File: %s line: %d> ",file_name,line);};
+exp_stm: exp ';' {};
 
 exp:	 comma_expression {$$ = $1;}
 	;
 
-primary_expression:	constant {$$=$1;}
+primary_expression:	| IDENT {
+			  		// look for this ident in the symbol table
+					struct symbol * ident = findSymbol(currentScope, $1, OTHERSPACE);			
+					struct astnode * symb = malloc(sizeof(struct astnode));
+					if(ident){
+						symb->u.symbol = ident;
+						symb->nodetype = SYMBOL; 	
+					}else{
+						yyerror("%s is not in the symbol table.",$1);
+					}
+					$$=symb;	
+				}
+		  	| constant {$$=$1;}
 			| parenthesized_expression {$$=$1;}
 			;
 constant:	numbers {$$=$1;}
@@ -594,12 +606,12 @@ parenthesized_expression:	'(' exp ')' {$$=$2;}
 cast_expression:	unary_expression {$$=$1;}
 			;
 
-postfix_expression:	primary_expression {$$=$1;}
+postfix_expression:	/*primary_expression {$$=$1;}*/
 			| postfix_expression '[' exp ']' {
 								struct astnode *b;
 								b = newBinop(SIMPLE_BNOP,'+',$1,$3);
 								$$ = newUnop(SIMPLE_UNOP,'*',b);
-							}
+							} 
 			| postfix_expression '.' IDENT {	
 								struct astnode *b;
 								b = newIdent(IDENT_OP, $3);
@@ -738,7 +750,6 @@ type_n: 	SHORT {$$=SHORT;}
 	 	| ENUM	{$$=ENUM;}
 	 	| FLT	{$$=FLT;}
 	 	| DBLE	{$$=DBLE;}
-	 	| UNION {$$=UNION;} 	 
 	 	| VOID	 {$$=VOID;}
 	 	;
 

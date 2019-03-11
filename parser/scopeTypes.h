@@ -1,0 +1,5 @@
+enum scopeTypes{
+	GLOBALSCOPE=1,
+	FUNCTIONSCOPE=2,
+	BLOCKSCOPE=3
+};

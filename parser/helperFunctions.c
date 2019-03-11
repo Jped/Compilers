@@ -6,6 +6,8 @@
 # include "cparser.tab.h"
 # include "types.h"
 # include "typeTypes.h"	
+# include "scopeTypes.h"
+
 struct astnode * 
 newTerop(int nodetype, int op, struct astnode *l, struct astnode *c, struct astnode *r)
 {
@@ -228,6 +230,7 @@ main()
 	currentScope = malloc(sizeof(struct scope));	
 	currentScope->last = NULL;
 	currentScope->next = NULL;
+	currentScope->scopeType = GLOBALSCOPE;
 	currentScope->previous = NULL;
 	return yyparse();
 }
@@ -265,20 +268,26 @@ token2name(int token)
 
 
 struct scope *
-newSymbolTable(struct scope * currentScope)
+newSymbolTable(struct scope * currentScope, int scopeType)
 {
 	//create a new scope
 	struct scope * newScope = malloc(sizeof(struct scope));
 	//link them
 	newScope->previous = currentScope;
+	newScope->scopeType = scopeType;
 	currentScope->next = newScope;
 	//return new current scope
 	return newScope;
 }
 
-void 
+struct scope *  
 destroySymbolTable(struct scope *s)
 {
+	// need to find the next scope that isnt function
+	struct scope * returningScope  = s->previous;
+	while(returningScope->scopeType == FUNCTIONSCOPE){
+		returningScope = returningScope->previous;
+	}
 	struct symbol * sym = s->last;
 	while (sym){
 		
@@ -287,6 +296,7 @@ destroySymbolTable(struct scope *s)
 		sym = temp;
 	}
 	free(s);
+	return returningScope;
 }
 
 struct symbol * 
