@@ -266,6 +266,74 @@ token2name(int token)
 	}
 }
 
+char *
+type2name(int token)
+{
+	switch(token){
+		case 0:
+			return "NONE";	
+		case ARRAYTYPE:
+			return "ARRAY";
+		case FNTYPE:
+			return "FUNCTION";
+		case PNTRTYPE:
+			return "POINTER";
+		case STRUCTTYPE:
+			return "STRUCT";
+		case INCOMPLETETYPE:
+			return "INCOMPLETE STRUCT";
+		case UNIONTYPE:
+			return "UNION";
+		case INCOMPLETEUNION:
+			return "INCOMPLETE UNION";
+		case SHORT:
+		       return "SHORT";
+		case  INTEGER:
+		      return "INTEGER";
+		case  LONG:
+		      return "LONG";
+		case LONGLONG:
+		     return "LONG LONG";
+		case CHR:
+		    return "CHAR";
+		case BOOL:
+		    return "BOOLEAN";
+		case FLT:
+	 	     return "FLOAT";
+		case DBLE:
+		     return "DOUBLE";
+		case VOID:
+		     return "VOID";
+		case AUTO:
+		     return "AUTO";
+		case EXTERN:
+		     return "EXTERN";
+		case STATIC:
+		     return "STATIC";
+		case REGISTER:
+		     return "REGISTER";
+		case CONST:
+		     return "CONST";
+		case VOLATILE:
+		     return "VOLATILE";
+		case RESTRICT:
+		     return "RESTRICT"; 
+	}
+}
+
+char *
+scope2name(int token)
+{
+	switch(token){
+		case GLOBALSCOPE:
+			return "GLOBAL SCOPE";
+		case FUNCTIONSCOPE:
+			return "FUNCTION SCOPE";
+		case BLOCKSCOPE:
+			return "BLOCK SCOPE";
+
+	}
+}
 
 struct scope *
 newSymbolTable(struct scope * currentScope, int scopeType)
@@ -374,18 +442,28 @@ enterNewVariable(struct scope *enteringScope, int nameSpace, struct superSpec * 
 		while(specs) {
 			val = specs->u.spec.val;
 			if (val == AUTO || val == EXTERN || val == REGISTER || val == STATIC){
+				if (enteringScope->scopeType == GLOBALSCOPE && val == AUTO){
+					yyerror("YOU CAN NOT USE AUTO IN THE GLOBAL SCOPE");
+				}
 				typeNode->u.spec.storageClass = val;
 			}else if (val == CONST || val == VOLATILE || val == RESTRICT){
 				typeNode->u.spec.type_qualifier = val;
 			}else if (val == UNSIGNED) {
 				typeNode->u.spec.sign = 0;
 			}
-			if ((val == UNSIGNED || val == SIGNED) && super->generalType == NULL) {
+			if ((val == UNSIGNED || val == SIGNED || val == CONST) && super->generalType == NULL) {
 				// here we have to assign the type here to int.
 			       	typeNode->u.spec.val = INTEGER;	
 			}
 			specs = specs->u.spec.next;
 			
+		}
+		if (typeNode->u.spec.storageClass == 0){
+			if (enteringScope->scopeType == GLOBALSCOPE){
+				typeNode->u.spec.storageClass = EXTERN;
+			}else{
+				typeNode->u.spec.storageClass = AUTO;
+			}
 		}
 	        if(typeNode->u.spec.val == 0){
 			yyerror("You did not pass in a type for %s", i->value);
@@ -423,7 +501,12 @@ printVariable(struct scope *enteringScope, int line, char * filenm)
 	struct symbol * last = enteringScope->last;
 	if (last) {
 		struct astnode * a = last->type;
-		printf("YO! FILENAME:%s line: %d \n\t NameSpace:%d, StorageClass:%d, type:%d, type_qualifier:%d, sign:%d,\n\t name:%s size:%d\n",filenm, line, last->nameSpace, a->u.spec.storageClass, a->u.spec.val, a->u.spec.type_qualifier, a->u.spec.sign, last->name, a->u.spec.size);
+		printf("YO! FILENAME:%s line: %d in Scope:%s \n\t NameSpace:%d, StorageClass:%s,  type_qualifier:%s, sign:%d,\n\t name:%s size:%d\n \t type:%s",filenm, line, scope2name(last->definedScope->scopeType), last->nameSpace, type2name(a->u.spec.storageClass), type2name(a->u.spec.type_qualifier), a->u.spec.sign, last->name, a->u.spec.size, type2name(a->u.spec.val));
+		while(a->u.spec.next){
+			a = a->u.spec.next;
+			printf(" -> %s", type2name(a->u.spec.val));
+		}
+		printf("\n");
 	} 
 }
 

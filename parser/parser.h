@@ -70,6 +70,8 @@ struct astnode_spec {
 		// we create a new symbol table for 
 		// parameters to the function...
 		struct symbol * params;
+		//only assign this for a function...
+		struct scope * functionScope;
 };
 
 
