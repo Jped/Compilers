@@ -324,6 +324,7 @@ type2name(int token)
 char *
 scope2name(int token)
 {
+
 	switch(token){
 		case GLOBALSCOPE:
 			return "GLOBAL SCOPE";
@@ -331,6 +332,8 @@ scope2name(int token)
 			return "FUNCTION SCOPE";
 		case BLOCKSCOPE:
 			return "BLOCK SCOPE";
+		case STRUCTSCOPE:
+			return "STRUCT SCOPE";
 
 	}
 }
@@ -411,12 +414,19 @@ enterNewVariable(struct scope *enteringScope, int nameSpace, struct superSpec * 
 	// for example if you have int *p, q[10] it would have the information that p is
 	// a pointer and q is an array of 10
 
-
 	struct initializedTypes * currentType = super->initialType;
-	// right here we will do a quick check for incomplete types.
+	// right here we will do a quick check for incomplete types
 	if (super->generalType && (super->generalType->u.spec.val == INCOMPLETETYPE || super->generalType->u.spec.val == INCOMPLETEUNION ) && (!currentType->t || currentType->t->u.spec.val != PNTRTYPE)){
-		yyerror("This type (%s) is incomplete and can not be used as a forward reference",super->generalType->u.spec.incompleteName);
+		yyerror("This type (%s) is incomplete and can not be used as a forward reference unless it is a pointer.",super->generalType->u.spec.incompleteName);
 		goto FINISHED;
+	}
+
+	// here we are going to check if this is a struct defined as a component,
+	// if this is the case we pop its scope out one.
+	// but we need to keep it in old scope too.
+	struct scope * superScope = NULL;
+	if (super->generalType->u.spec.val == STRUCTTYPE && enteringScope->scopeType == STRUCTSCOPE){
+		superScope = enteringScope->previous;
 	}
 	while (i) {
 		// look up variable name in scope right here
@@ -428,9 +438,18 @@ enterNewVariable(struct scope *enteringScope, int nameSpace, struct superSpec * 
 		}
 		struct symbol * newSymbol = malloc(sizeof(struct symbol));
 		struct astnode * typeNode = malloc(sizeof(struct astnode));
+		struct symbol * superSymbol = malloc(sizeof(struct symbol));
 		newSymbol->name = strdup(i->value);
 		newSymbol->type = typeNode;
 		newSymbol->previous = enteringScope->last;
+		if (superScope){
+			superSymbol->previous = superScope->last;
+			superSymbol->type =typeNode;
+			superSymbol->nameSpace = nameSpace;
+			superSymbol->definedScope = enteringScope;
+			superSymbol->type = currentType->t;
+			superSymbol->name = strdup(i->value);
+		}
 		newSymbol->nameSpace = nameSpace;
 		newSymbol->definedScope = enteringScope;
 		typeNode->u.spec.sign = 1;
@@ -487,7 +506,11 @@ enterNewVariable(struct scope *enteringScope, int nameSpace, struct superSpec * 
 			currentType = currentType->next;
 				
 		} 
+		
 		enteringScope->last = newSymbol;
+		if (superScope){
+			superScope->last = superSymbol;
+		}
 		specs = super->s; 
 		i = i->next;
 	}
@@ -508,6 +531,32 @@ printVariable(struct scope *enteringScope, int line, char * filenm)
 		}
 		printf("\n");
 	} 
+}
+
+void 
+printSymbol(struct symbol * last)
+{
+	if (last && last->name) {
+		struct astnode * a = last->type;
+		printf("\t");
+		printf("Member in Scope:%s \n\t NameSpace:%d, StorageClass:%s,  type_qualifier:%s, sign:%d,\n\t name:%s size:%d\n \t type:%s", scope2name(last->definedScope->scopeType),last->nameSpace, type2name(a->u.spec.storageClass), type2name(a->u.spec.type_qualifier), a->u.spec.sign, last->name, a->u.spec.size, type2name(a->u.spec.val));
+		while(a->u.spec.next){
+			a = a->u.spec.next;
+			printf(" -> %s", type2name(a->u.spec.val));
+		}
+		printf("\n");
+	} 
+}
+void 
+printStructMembers(struct symbol * structSymbol)
+{
+	printf("With the following members:\n");
+	printf("_______________________________________________________\n");
+       	while(structSymbol){
+		printSymbol(structSymbol);
+		structSymbol = structSymbol->previous;
+	}
+	printf("_______________________________________________________\n");
 }
 
 struct  astnode *

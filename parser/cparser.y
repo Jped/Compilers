@@ -114,8 +114,8 @@ struct scope * currentScope;
 %token <string_literal> FILEN 
 
 
-%type <a> exp unary_expression primary_expression numbers characters constant parenthesized_expression cast_expression postfix_expression binary_expression ternary_expression assignment_expression comma_expression type_name declaration_spec pointer type_qualifier_list union_type_definition union_type_specifier structure_type_specifier structure_type_definition
-%type <super> declaration_specifier initialized_declarator_list decl component_declaration component_declarator_list 
+%type <a> exp unary_expression primary_expression numbers characters constant parenthesized_expression cast_expression postfix_expression binary_expression ternary_expression assignment_expression comma_expression type_name declaration_spec pointer type_qualifier_list union_type_definition structure_type_definition
+%type <super> declaration_specifier initialized_declarator_list component_declaration component_declarator_list 
 %type <small> simple_declarator initialized_declarator direct_declarator array_declarator declarator function_declarator pointer_declarator
 %type <l> expression_list
 %type <integer> type_n type_qualifier storage_class_specifier specs 
@@ -140,36 +140,46 @@ struct scope * currentScope;
 decl_or_stmt: 	declaration 
 		| statement
 		| declaration decl_or_stmt 
-		| block
-		| block decl_or_stmt 
+		| compound_stmt
+		| compound_stmt decl_or_stmt
 		;
 
-block: '{'  	{
-				// add a new scope here...
-			 	currentScope = newSymbolTable(currentScope, BLOCKSCOPE);	
-			}
-		| '}' {
+compound_stmt: '{'{currentScope = newSymbolTable(currentScope, BLOCKSCOPE);} decl_or_stmt '}' {
 				// pop out of current scope. 
 				// also verify that you are not in the outermost scope
-				if (currentScope->previous){
-					currentScope = destroySymbolTable(currentScope);
-				}else{
-					yyerror("There is no scope to pop out of, unbalanced brackets");
-				}
-			}
+				currentScope = destroySymbolTable(currentScope);
+		}
 		;
 
-declaration:	decl
-		;
+declaration: decl;
 
 decl:   	declaration_specifier initialized_declarator_list ';' 	{
 										enterNewVariable(currentScope,OTHERSPACE,$2);
 										printVariable(currentScope,line, file_name);
 										
 									}
-		| structure_type_specifier
-		| union_type_specifier
+		| declaration_specifier function_declarator function_body {
+										// assign function scope to function astnode...
+										struct astnode * fnNode = $2->types->t;
+										fnNode->u.spec.functionScope = currentScope;		
+										currentScope = destroySymbolTable(currentScope);
+										struct superSpec * super = $1;
+										struct init * i = malloc(sizeof(struct init));
+										i->value = strdup($2->value);
+										i->next = NULL;
+										super->i = i;
+										super->initialType = $2->types;
+										enterNewVariable(currentScope,OTHERSPACE,super); 
+										
+										printVariable(currentScope,line, file_name);
+									}	
+		| structure_type_definition ';' 
+		| union_type_definition ';'
 		;
+
+function_body: '{'{currentScope = newSymbolTable(currentScope, FUNCTIONSCOPE);} decl_or_stmt '}'
+													
+	     	;
 
 declaration_specifier:	declaration_spec { 
 		     			 	struct superSpec * lastSpec = malloc(sizeof(struct superSpec));
@@ -249,15 +259,19 @@ initialized_declarator_list:	initialized_declarator {
 initialized_declarator: declarator
 			;
 
-declarator:	pointer_declarator
-	  	| direct_declarator
+declarator:	 direct_declarator
+	  	|pointer_declarator
 	  	;
 
 
 direct_declarator: 	simple_declarator
-		 	|'(' declarator ')' {$$= $2;}
-			| function_declarator
+		 	|'(' declarator ')' {
+						
+						struct astnode * t = $2->types->t;
+						$$= $2;
+					     }
 			| array_declarator	
+			| function_declarator 
 			;
 
 pointer_declarator:	pointer direct_declarator {
@@ -271,15 +285,26 @@ pointer_declarator:	pointer direct_declarator {
 							// got a major type  problem going on here.
 							// newPointerTypes is a pointer to astnode, while old is an initialzied type
 							struct initializedTypes * new = malloc(sizeof(struct initializedTypes));
-							newPointerTypes->u.spec.next = old->t;
-							new->t = newPointerTypes;
-							direct_decl->types = new;
+							struct astnode * a = old->t;
+							while(a){
+								if(a->u.spec.next == NULL){
+									a->u.spec.next = newPointerTypes;
+									break;
+								}
+								a = a->u.spec.next;
+							}
+							if (old->t == NULL){
+								new->t = newPointerTypes;
+							}else{
+								new->t = old->t;
+							}
+							direct_decl->types = new; 
 							$$ = direct_decl;
 						}
 			;
 
-pointer:	'*' {	
-   		        struct astnode * pntr = addInitType(TYPE,PNTRTYPE,NULL);	
+pointer:	'*' {
+			struct astnode * pntr = addInitType(TYPE,PNTRTYPE,NULL);	
 			$$ =pntr;
 			
        		    }
@@ -297,8 +322,11 @@ pointer:	'*' {
 
 						  }
 		| '*' pointer{
+				
    		    		struct astnode * pntr = addInitType(TYPE,PNTRTYPE,NULL);	
 				pntr->u.spec.next = $2;
+				int count = 0;
+				struct astnode * a = pntr;
 				$$ = pntr;
 
 				}
@@ -336,12 +364,22 @@ array_declarator:	direct_declarator '['']' {
 							struct smallSpec * direct_decl = $1;
 							struct initializedTypes * previous = direct_decl->types;
 							// create new type here that has to do with arrays of unknown size
-							struct astnode * arrayType = malloc(sizeof(struct astnode));
+							struct astnode * arrayType = addInitType(TYPE,ARRAYTYPE,NULL);
 							struct initializedTypes * new = malloc(sizeof(struct initializedTypes));
-							arrayType->u.spec.val = ARRAYTYPE;
 							arrayType->u.spec.size = -1;
-							new->t = arrayType;
-							new->next = previous;
+							struct astnode * a  = previous->t;
+							while(a){
+								if(a->u.spec.next == NULL){
+									a->u.spec.next = arrayType;
+									break;
+								}
+								a = a->u.spec.next;
+							}
+							if (previous->t==NULL){
+								new->t = arrayType;
+							}else{
+								new->t = previous->t;
+							}
 							direct_decl->types = new; 
 							$$ = direct_decl;
 							}
@@ -349,27 +387,38 @@ array_declarator:	direct_declarator '['']' {
 							struct smallSpec * direct_decl = $1;
 							struct initializedTypes * previous = direct_decl->types;
 							// create new type here that has to do with arrays of unknown size
-							struct astnode * arrayType = malloc(sizeof(struct astnode));
+							struct astnode * arrayType = addInitType(TYPE,ARRAYTYPE,NULL);
 							struct initializedTypes * new = malloc(sizeof(struct initializedTypes));
-							arrayType->u.spec.val = ARRAYTYPE;
 							arrayType->u.spec.size = $3;
-							new->t = arrayType;
-							new->next = previous;
+							struct astnode * a  = previous->t;
+							while(a){
+								if(a->u.spec.next == NULL){
+									a->u.spec.next = arrayType;
+									break;
+								}
+								a = a->u.spec.next;
+							}
+							if (a==NULL){
+								new->t = arrayType;
+							}else{
+								new->t = previous->t;
+							}
 							direct_decl->types = new;
 							$$ = direct_decl;
 
 							}
 			;
 
+
 function_declarator:	direct_declarator '(' parameter_type_list ')' {
-		   							struct smallSpec * direct_decl = $1;
+									struct smallSpec * direct_decl = $1;
 									struct initializedTypes * previous = direct_decl->types;
-									struct astnode * fnType = malloc(sizeof(struct astnode));
+									struct astnode * fnType = addInitType(TYPE,FNTYPE,NULL);
 									struct initializedTypes * new = malloc(sizeof(struct initializedTypes));
 									struct symbol * topSymbol = $3;	
 									struct symbol * prevs = NULL;
 									struct symbol * next;
-									fnType->u.spec.val = FNTYPE;
+
 									// reverse the order here! 
 									while(topSymbol->previous){
 										next = topSymbol->previous;
@@ -378,21 +427,42 @@ function_declarator:	direct_declarator '(' parameter_type_list ')' {
 										topSymbol = next;
 									}
 									fnType->u.spec.params = topSymbol;
-									new->t = fnType;
-									new->next = previous;
+									struct astnode * a = previous->t;
+									while(a){
+										if(a->u.spec.next == NULL){
+											a->u.spec.next = fnType;
+											break;
+										}
+										a = a->u.spec.next;
+									}
+									if(previous->t == NULL){
+										new->t = fnType;
+									}else{
+										new->t = previous->t;
+									}	
 									direct_decl->types = new; 
 									$$ = direct_decl;		
 								      }
 		   	| direct_declarator '(' ')' {
 							struct smallSpec * direct_decl = $1;
 							struct initializedTypes * previous = direct_decl->types;
-							struct astnode * fnType = malloc(sizeof(struct astnode));
+							struct astnode * fnType = addInitType(TYPE,FNTYPE,NULL);
 							struct initializedTypes * new = malloc(sizeof(struct initializedTypes));
-							fnType->u.spec.val = FNTYPE;
 							fnType->u.spec.params = NULL;
-							new->t = fnType;
-							new->next = previous;
-							direct_decl->types = new; 
+							struct astnode * a = previous->t;
+							while(a){
+								if(a->u.spec.next == NULL){
+									a->u.spec.next = fnType;
+									break;
+								}
+								a = a->u.spec.next;
+							}
+							if(previous->t == NULL){
+								new->t = fnType;
+							}else{
+								new->t = previous->t;
+							}								
+							direct_decl->types = new;
 							$$ = direct_decl;	
 						    }
 			;
@@ -438,25 +508,30 @@ type_qualifier:	CONST {$$=CONST;}
 		| UNSIGNED {$$=UNSIGNED;}
 		;
 
-structure_type_specifier:	structure_type_definition
-				;
 
 structure_type_definition:	struct_definition '{'field_list '}' {
-			 							// need to enter into the symbol table over here.
-										// field list must return a stack of symbols? (or mayb
-										// a paramter list) 
-										struct astnode * structType = malloc(sizeof(struct astnode));
-										struct symbol * structSymbol = $1;
-										structType->nodetype = TYPE;
-										structType->u.spec.val = STRUCTTYPE ;
-										structType->u.spec.params = $3->last;	
-										structSymbol->type = structType;
-										structSymbol->previous = currentScope->last;
-										structSymbol->definedScope = currentScope;
-										currentScope->last = structSymbol;
-										$$ = structType;
-										printVariable(currentScope,line, file_name);
-									}
+			 							// Check if it already defined...
+										struct symbol * ident = findSymbol(currentScope, $1->name, STRUCTSPACE);
+										if (ident== NULL){			
+											// need to enter into the symbol table over here.
+											// field list must return a stack of symbols? (or mayb
+											// a paramter list) 
+											struct astnode * structType = malloc(sizeof(struct astnode));
+											struct symbol * structSymbol = $1;
+											structType->nodetype = TYPE;
+											structType->u.spec.val = STRUCTTYPE ;
+											structType->u.spec.params = $3->last;	
+											structSymbol->type = structType;
+											structSymbol->previous = currentScope->last;
+											structSymbol->definedScope = currentScope;
+											currentScope->last = structSymbol;
+											$$ = structType;
+											printVariable(currentScope,line, file_name);
+											printStructMembers($3);
+										} else {
+											yyerror("This (%s) has already been defined, you are not allowed to redefine it.", $1->name);
+										}	
+								}
 				;
 
 
@@ -468,10 +543,9 @@ struct_definition: 	STRUCT IDENT 	{
 					}
 		 	;
 
-union_type_specifier:	union_type_definition
-		    	;
 
 union_type_definition: union_definition '{' field_list '}' 	{
+		
 									struct astnode * unionType = malloc(sizeof(struct astnode));
 									struct symbol * unionSymbol = $1;
 									unionType->nodetype = TYPE;
@@ -483,7 +557,8 @@ union_type_definition: union_definition '{' field_list '}' 	{
 									currentScope->last = unionSymbol;
 									$$ = unionType;
 									printVariable(currentScope,line, file_name);
-
+									printStructMembers(unionSymbol);
+	
 								}
 		      ;
 
@@ -499,16 +574,18 @@ union_definition: UNION IDENT 	{
 
 field_list:	component_declaration {
 	  				// here we create the entering scope	
-				      	struct scope * newScope = malloc(sizeof(struct scope));
-					// then we take the new symbold and add it to the last of this new scope
-					enterNewVariable(newScope,STRUCTSPACE,$1);		
+					struct scope * newScope = malloc(sizeof(struct scope));
+					newScope->scopeType = STRUCTSCOPE;
+					newScope->previous = currentScope; 
+					// then we take the new symbol and add it to the last of this new scope
+					enterNewVariable(newScope,OTHERSPACE,$1);
 					$$ = newScope; 
 				      }
 	  	| field_list component_declaration	{
 								// here we add the symbol to the correct scope and link
 								// it to the previous symbol
 								struct scope * structScope = $1;
-								enterNewVariable(structScope,STRUCTSPACE,$2);
+								enterNewVariable(structScope,OTHERSPACE,$2);
 								$$ = structScope;
 							}
 		;	
@@ -517,13 +594,7 @@ component_declaration: type_name component_declarator_list ';' 	{
 									$2->generalType = $1;
 									$$ = $2;
 								}
-			| structure_type_specifier component_declarator_list ';' 	{
-												$2->generalType = $1;
-											}
-		     	| union_type_specifier component_declarator_list ';' 	{
-											$2->generalType = $1;
-										};
-
+		     						;		
 component_declarator_list:	declarator 	{
 							struct superSpec * super = malloc(sizeof(struct superSpec));
 							struct init * i = malloc(sizeof(struct init));
@@ -738,6 +809,12 @@ type_name:	type_n {
 							$$ = incompleteType;	
 						}		
 					}
+		| structure_type_definition 	{
+							$$ = $1;
+						}
+		| union_type_definition {
+						$$ = $1;
+					}
 		;
 
 type_n: 	SHORT {$$=SHORT;}
@@ -746,7 +823,6 @@ type_n: 	SHORT {$$=SHORT;}
 		| LONGLONG {$$=LONGLONG;}
 	 	| CHR {$$=CHR;}	
 	 	| BOOL	{$$=BOOL;}
-	 	| ENUM	{$$=ENUM;}
 	 	| FLT	{$$=FLT;}
 	 	| DBLE	{$$=DBLE;}
 	 	| VOID	 {$$=VOID;}
