@@ -4,6 +4,8 @@ extern int yylineno;
 extern char file_name[300];
 extern int line;
 extern struct scope * currentScope;
+extern int withinLoop;
+extern int tmpCounter;
 
 struct listarg {
 	int size;
@@ -41,6 +43,19 @@ struct astnode_ident {
 		char* name;
 };
 
+struct astnode_if {
+	struct astnode * exp;
+	struct astnode * statement;
+	struct astnode * elseStatement;
+};
+
+struct adnode_for {
+	struct astnode * initial_clause;
+	struct astnode * expression1;
+	struct astnode * expression2;
+	struct astnode * statement;
+};
+
 typedef union{
 	int i;
 	double d;
@@ -58,6 +73,27 @@ struct astnode_string {
 
 };
 
+struct astnode_cmpnd {
+		struct astnode * statements; 
+};
+
+struct astnode_simpleStmt {
+		int type;
+		struct astnode * exp;
+};
+
+struct astnode_for {
+		struct astnode * initial_clause;
+		struct astnode * expression1;
+		struct astnode * expression2;
+		struct astnode * statement;
+
+};
+
+struct astnode_label {
+		struct astnode * label;
+		struct astnode * statement;
+};
 
 struct astnode_spec {
 		int val;
@@ -74,6 +110,9 @@ struct astnode_spec {
 		struct scope * functionScope;
 };
 
+struct astnode_tmp {
+		int num;
+};
 
 struct symbol{
 
@@ -82,6 +121,23 @@ struct symbol{
 	char* name;
 	struct symbol * previous;
 	struct scope * definedScope;
+
+};
+
+struct quad { 
+	int opcode; 
+	struct astnode * left; 
+	struct astnode * right;
+	struct astnode * target; 
+	struct quad * prevQuad;
+
+};
+
+struct basicBlock { 
+	struct quad * firstQuad;
+	struct quad * lastQuad; 
+	int num;
+	struct basicBlock * nextBlock; 
 
 };
 
@@ -96,19 +152,24 @@ struct astnode {
 		struct astnode_num num;
 		struct astnode_string string;
 		struct astnode_spec spec;
+		struct astnode_if ifNode;
+		struct astnode_cmpnd  compound; 
+		struct astnode_for forNode;
+		struct astnode_simpleStmt simple;
+		struct astnode_label label;
+		struct astnode_tmp tmp;
 		struct symbol * symbol;
 	} u;
-	
+	struct quad * q; 
+	struct astnode * next;	
 };
-
-
-
 
 struct scope{
 	int scopeType;
 	struct scope * previous;
 	struct scope * next;
 	struct symbol * last;
+	int done;
 };
 
 
@@ -155,5 +216,25 @@ struct scope *destroySymbolTable(struct scope *s);
 struct symbol *findSymbol(struct scope *lookingScope, char * name,int nameSpace);
 void enterNewVariable(struct scope *enteringScope,int nameSpace, struct superSpec * super);
 void printVariable(struct scope *enteringScope, int line, char * filenm);
-struct astnode *addInitType(int nodeType, int newVal, struct astnode * next); 
-
+struct astnode * addInitType(int nodeType, int newVal, struct astnode * next); 
+struct astnode * addCondStatement(int conditionType,struct astnode * exp, struct astnode * statement, struct astnode * elseStatement);
+struct astnode * createStruct(struct scope * currentScope, struct symbol * structSymbol, struct scope * field_list, int isUnion);
+struct astnode * createCompoundAst(int type, struct astnode * decl_or_stmt);
+struct astnode * addForNode(struct astnode * initial_clause, struct astnode * expression1, struct astnode * expression2, struct astnode * statement);
+struct astnode * addSimpleStmt(int type, struct astnode * exp);
+struct astnode * addLabelStatement(struct astnode * label, struct astnode * statement);
+struct astnode * addCaseStmt(int type, int val);
+struct astnode * addBreakStmt();
+struct astnode * addContStmt();
+void notInGlobalScope();
+struct basicBlock * emitQuads(struct astnode * f);
+void printQuad(struct astnode * head); 
+struct quad * linkQuads(struct quad * l, struct quad *r);
+struct quad * generateQuad(struct astnode * l, struct astnode * r, struct astnode * target, int op);
+struct astnode * augSymbol(struct astnode * symbol, int op);
+struct astnode * generateTarget(int nodetype);
+struct quad * fixPointer(struct quad * bad, struct quad * tQ);
+struct quad *  checkLnode(struct astnode * a, struct quad *tQ);
+void fixQuads(struct astnode * a);
+char * resolveQ(struct astnode * node, char * buf, int op);
+void yyerror(const char *s,...);

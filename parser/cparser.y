@@ -21,6 +21,8 @@
 char file_name[300];
 int line;
 struct scope * currentScope;
+int withinLoop;
+int tmpCounter;
 %}
 
 
@@ -114,7 +116,7 @@ struct scope * currentScope;
 %token <string_literal> FILEN 
 
 
-%type <a> exp unary_expression primary_expression numbers characters constant parenthesized_expression cast_expression postfix_expression binary_expression ternary_expression assignment_expression comma_expression type_name declaration_spec pointer type_qualifier_list union_type_definition structure_type_definition
+%type <a> exp exp_stm unary_expression primary_expression numbers characters constant parenthesized_expression cast_expression postfix_expression binary_expression ternary_expression assignment_expression comma_expression type_name declaration_spec pointer type_qualifier_list union_type_definition structure_type_definition statement decl_or_stmt compound_stmt if_else_statement if_statement conditional_statement null_statement labeled_statement label goto_statement switch_statement for_statement do_statement while_statement case_label named_label default_label initial_clause exp_opt break_statement continue_statement return_statement iterative_statement function_body
 %type <super> declaration_specifier initialized_declarator_list component_declaration component_declarator_list 
 %type <small> simple_declarator initialized_declarator direct_declarator array_declarator declarator function_declarator pointer_declarator
 %type <l> expression_list
@@ -137,17 +139,41 @@ struct scope * currentScope;
 
 %%
 
-decl_or_stmt: 	declaration 
-		| statement
-		| declaration decl_or_stmt 
-		| compound_stmt
-		| compound_stmt decl_or_stmt
+decl_or_stmt: 	declaration 			{
+	    					 // create dud astnode 
+						 struct astnode * emptyNode = NULL;
+						}
+		| declaration decl_or_stmt 	{
+						  $$ = $2;
+						}
+		| statement {	
+				$$ = $1;
+			    }
+		| statement decl_or_stmt {
+						$1->next = $2;
+						$$ = $1; 
+					 } 
 		;
 
-compound_stmt: '{'{currentScope = newSymbolTable(currentScope, BLOCKSCOPE);} decl_or_stmt '}' {
+statement:	  compound_stmt 
+	 	| exp_stm
+		| conditional_statement
+		| labeled_statement
+		| switch_statement
+		| goto_statement
+		| iterative_statement
+		| break_statement
+		| continue_statement
+		| return_statement
+		| null_statement;
+
+
+compound_stmt: '{'{	int scopetype = currentScope->scopeType !=SWITCHSCOPE ? BLOCKSCOPE : SWITCHSCOPE; 
+	     		currentScope = newSymbolTable(currentScope, scopetype);} decl_or_stmt[decl] '}' {
 				// pop out of current scope. 
 				// also verify that you are not in the outermost scope
 				currentScope = destroySymbolTable(currentScope);
+				$$ = createCompoundAst(COMPOUND,$decl); 
 		}
 		;
 
@@ -161,7 +187,11 @@ decl:   	declaration_specifier initialized_declarator_list ';' 	{
 		| declaration_specifier function_declarator function_body {
 										// assign function scope to function astnode...
 										struct astnode * fnNode = $2->types->t;
-										fnNode->u.spec.functionScope = currentScope;		
+										 fnNode->u.spec.functionScope = currentScope;		
+										// why am I destroying the current scope? 
+										// We are not destroying it here, we are just pointing it
+										// to the previous scope because we have no exited it
+										currentScope->done = 1;
 										currentScope = destroySymbolTable(currentScope);
 										struct superSpec * super = $1;
 										struct init * i = malloc(sizeof(struct init));
@@ -170,14 +200,16 @@ decl:   	declaration_specifier initialized_declarator_list ';' 	{
 										super->i = i;
 										super->initialType = $2->types;
 										enterNewVariable(currentScope,OTHERSPACE,super); 
-										
 										printVariable(currentScope,line, file_name);
+										struct astnode * fnAst = createCompoundAst(FUNCTION,$3);
+										printast(fnAst,0);
+										emitQuads(fnAst);
 									}	
 		| structure_type_definition ';' 
 		| union_type_definition ';'
 		;
 
-function_body: '{'{currentScope = newSymbolTable(currentScope, FUNCTIONSCOPE);} decl_or_stmt '}'
+function_body: '{'{currentScope = newSymbolTable(currentScope, FUNCTIONSCOPE);} decl_or_stmt[decl] '}' { $$ = $decl;}
 													
 	     	;
 
@@ -509,29 +541,10 @@ type_qualifier:	CONST {$$=CONST;}
 		;
 
 
-structure_type_definition:	struct_definition '{'field_list '}' {
-			 							// Check if it already defined...
-										struct symbol * ident = findSymbol(currentScope, $1->name, STRUCTSPACE);
-										if (ident== NULL){			
-											// need to enter into the symbol table over here.
-											// field list must return a stack of symbols? (or mayb
-											// a paramter list) 
-											struct astnode * structType = malloc(sizeof(struct astnode));
-											struct symbol * structSymbol = $1;
-											structType->nodetype = TYPE;
-											structType->u.spec.val = STRUCTTYPE ;
-											structType->u.spec.params = $3->last;	
-											structSymbol->type = structType;
-											structSymbol->previous = currentScope->last;
-											structSymbol->definedScope = currentScope;
-											currentScope->last = structSymbol;
-											$$ = structType;
-											printVariable(currentScope,line, file_name);
-											printStructMembers($3);
-										} else {
-											yyerror("This (%s) has already been defined, you are not allowed to redefine it.", $1->name);
-										}	
-								}
+structure_type_definition:	struct_definition '{'field_list '}' 	{
+			 								
+		     								$$ = createStruct(currentScope, $1,$3,0);
+									}
 				;
 
 
@@ -545,20 +558,7 @@ struct_definition: 	STRUCT IDENT 	{
 
 
 union_type_definition: union_definition '{' field_list '}' 	{
-		
-									struct astnode * unionType = malloc(sizeof(struct astnode));
-									struct symbol * unionSymbol = $1;
-									unionType->nodetype = TYPE;
-									unionType->u.spec.val = UNIONTYPE ;
-									unionType->u.spec.params = $3->last;	
-									unionSymbol->type = unionType;
-									unionSymbol->previous = currentScope->last;
-									unionSymbol->definedScope = currentScope;
-									currentScope->last = unionSymbol;
-									$$ = unionType;
-									printVariable(currentScope,line, file_name);
-									printStructMembers(unionSymbol);
-	
+		     							$$ = createStruct(currentScope, $1,$3,1);
 								}
 		      ;
 
@@ -617,12 +617,8 @@ component_declarator_list:	declarator 	{
 				;
 
 
-statement:	exp_stm
-	 	|statement exp_stm
-		;
 
-
-exp_stm: exp ';' {};
+exp_stm: exp ';' {$$ = $1;};
 
 exp:	 comma_expression {$$ = $1;}
 	;
@@ -632,8 +628,11 @@ primary_expression:	 IDENT {
 					struct symbol * ident = findSymbol(currentScope, $1, OTHERSPACE);			
 					struct astnode * symb = malloc(sizeof(struct astnode));
 					if(ident){
-						symb->u.symbol = ident;
-						symb->nodetype = SYMBOL; 	
+						struct symbol * cident = malloc(sizeof(struct symbol));
+						memcpy(cident,ident,sizeof(struct symbol));
+						symb->u.symbol = cident;
+						symb->nodetype = SYMBOL;
+							
 					}else{
 						yyerror("%s is not in the symbol table.",$1);
 					}
@@ -892,6 +891,101 @@ assignment_expression:	ternary_expression {$$=$1;}
 comma_expression:	assignment_expression {$$ = $1;}
 			| comma_expression ',' assignment_expression { $$ =newBinop(SIMPLE_BNOP,',',$1, $3);}
 			;
+
+
+conditional_statement: 		if_statement
+		     		| if_else_statement;
+		     
+
+if_statement: 		IF '(' exp ')' statement 		{		
+									$$ = addCondStatement(IFNODE,$3,$5, NULL);
+								};
+
+if_else_statement:	if_statement ELSE statement 		{
+		 							$1->u.ifNode.elseStatement = $3;			
+									$$ = $1;
+								};
+
+labeled_statement: label ':' statement {$$ = addLabelStatement($1,$3);};
+
+label:	named_label
+     	| case_label
+	| default_label;
+
+switch_statement: SWITCH '(' exp[express] ')' {
+			// jump into fake scope just so that we know we are in a switch
+					currentScope = newSymbolTable(currentScope, SWITCHSCOPE);
+			}  statement[stmt] {
+					currentScope = destroySymbolTable(currentScope);
+					$$ = addCondStatement(SWITCHNODE,$express,$stmt,NULL);
+			};
+			
+case_label:CASE INT     {$$ = addCaseStmt(CASE,$2);} 
+	   | CASE CHAR  {$$ = addCaseStmt(CASE,(int) $2);};
+
+
+default_label: DEFAULT {$$ = addCaseStmt(DEFAULT,NULL);};
+
+
+
+goto_statement: GOTO named_label ';'{
+	      				struct astnode * n = malloc(sizeof(struct astnode));
+					$$ = n;
+					$$ = addSimpleStmt(GOTO,$2);
+	      
+				};
+
+named_label: IDENT {$$ = newIdent(NAMEDLABEL,$1);};
+
+iterative_statement:	while_statement
+		   	| do_statement
+			| for_statement
+			;
+
+while_statement: WHILE '(' exp[expr] ')'{withinLoop+=1;} statement[stmt] {  
+										withinLoop-=1;
+										notInGlobalScope();
+										$$ = addCondStatement(WHILENODE,$expr,$stmt, NULL);
+									};
+
+do_statement: DO {withinLoop+=1;} statement[stmt] {withinLoop-=1;} WHILE '(' exp[expr2] ')'{  
+	    					notInGlobalScope();
+						$$ = addCondStatement(DONODE,$expr2,$stmt,NULL);
+					    };
+
+for_statement: FOR '(' initial_clause[init] ';' exp_opt[expo] ';' exp_opt[expo2]')'{withinLoop+=1;} statement[stmt] { withinLoop-=1;notInGlobalScope(); $$ = addForNode($init,$expo,$expo2,$stmt);}; 
+
+initial_clause:  { struct astnode * empty = NULL;
+	      	   $$ = empty;
+		
+		 }
+	      	| exp;
+
+exp_opt: { struct astnode * empty = NULL;
+	      	   $$ = empty;
+		
+         }
+       	| exp;
+
+
+
+break_statement: BREAK ';' { 
+	       				$$ = addBreakStmt();};
+
+continue_statement: CONTINUE ';'{ $$ = addContStmt();};
+
+return_statement:	RETURN exp ';' {	
+						notInGlobalScope();
+						$$ = addSimpleStmt(RETURN,$2);
+					}
+
+			| RETURN ';' {
+						notInGlobalScope();
+						$$ = addSimpleStmt(RETURN,NULL);
+				     };
+
+null_statement: ';'  {struct astnode * empty = malloc(sizeof(struct astnode)); $$ = empty;} 
+
 
 %%
 

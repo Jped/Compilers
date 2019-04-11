@@ -11,5 +11,9 @@ enum operations {
 	SELECT_OP = 9,
 	TERNARY_OP=10,
 	FNCALL_OP=12,
-	CAST_OP=13
+	CAST_OP=13,
+	MOV = 260,
+	LOAD = 261,
+	STORE = 262,
+	LEA = 263	
 };

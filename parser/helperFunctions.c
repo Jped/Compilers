@@ -7,7 +7,65 @@
 # include "types.h"
 # include "typeTypes.h"	
 # include "scopeTypes.h"
+# include "namespace.h"
+# include "ops.h" 
 
+struct quad * 
+linkQuads(struct quad  * l, struct quad * r) 
+{
+	struct quad * tmpR;
+	if (l){ 
+		tmpR = l;
+		while(tmpR->prevQuad) { 
+			tmpR = tmpR->prevQuad;
+		} 
+		tmpR->prevQuad = r;
+	} else { 
+		l = r;
+	}
+	return l; 	
+}
+
+struct astnode *
+augSymbol(struct astnode * symbolNode, int op)
+{
+	// this function serves as a general augmentation function
+	// to a symbol. For example it can be used to Move a variable
+	// or load a pointer to a variable.
+	struct quad *  aug        = malloc(sizeof(struct quad));
+	aug->opcode = op;
+	aug->target = generateTarget(op);
+	aug->right = symbolNode;
+	aug->left = NULL;
+	symbolNode->q = aug;
+	return symbolNode;
+}
+
+
+struct quad * 
+generateQuad(struct astnode * left, struct astnode * right, struct astnode * target, int op) 
+{
+	// got to check if left or right is a symbol...
+	struct quad * q = malloc(sizeof(struct quad));
+	q->opcode = op;
+	switch(op) { 
+		default: 
+			q->left	  = left->nodetype == SYMBOL ? augSymbol(left, MOV) :left; 
+		break;
+		case '=': 
+			// this is placed in order to get the ident to be a lvalue in an equal 
+			// statement
+			q->left = left;
+		break;	
+		
+	} 
+	q->right  = right->nodetype == SYMBOL? augSymbol(right, MOV) :right;
+	q->prevQuad = linkQuads(left->q, right->q);
+	q-> target= target;
+	// got to link the two quads together.
+	return q;
+}
+	
 struct astnode * 
 newTerop(int nodetype, int op, struct astnode *l, struct astnode *c, struct astnode *r)
 {
@@ -20,6 +78,19 @@ newTerop(int nodetype, int op, struct astnode *l, struct astnode *c, struct astn
 	return a;
 
 }
+struct astnode * 
+generateTarget(int nodetype) 
+{
+	struct astnode * target = NULL; 
+	if (nodetype != '='){
+		target  = malloc(sizeof(struct astnode));
+		target->nodetype = TMP;
+		target->u.tmp.num = tmpCounter;
+		tmpCounter +=1;
+	}
+	return target;
+}
+
 struct astnode *
 newBinop(int nodetype, int op, struct astnode *l, struct astnode *r)
 {
@@ -28,16 +99,37 @@ newBinop(int nodetype, int op, struct astnode *l, struct astnode *r)
 	a->u.binop.op = op;
 	a->u.binop.l = l;
 	a->u.binop.r = r;
+	struct astnode * target = generateTarget(op);
+	struct quad * q = generateQuad(l,r,target,op); 
+	a->q = q;
 	return a;
 }
 
 struct astnode * 
 newUnop(int nodetype, int op, struct astnode *c)
 {
+
 	struct astnode *a = malloc(sizeof(struct astnode));
 	a->nodetype = nodetype;
 	a->u.unop.op = op;
 	a->u.unop.c = c;
+	struct quad * q = NULL;
+	switch(op){
+		case '*':
+			if (c->nodetype == SYMBOL && c->u.symbol->type->u.spec.val == ARRAYTYPE){
+				q = augSymbol(c, LEA)->q;
+				struct quad * load = malloc(sizeof(struct quad));
+				load->opcode = LOAD;
+				load->right = q->target;
+				load->target = generateTarget(LOAD);
+				load->prevQuad = q;
+				q = load;
+			} else { 
+				q = augSymbol(c, LOAD)->q;
+			}
+		break;
+	}
+	a->q = q;
 	return a;	
 
 }
@@ -107,6 +199,9 @@ newList(int nodetype, struct astnode * a)
 void 
 printast(struct astnode * a, int level)
 {
+	if(!a) { 
+		goto FINISH;
+	}
 	for (int i =0;i<level;i++){
 		printf("\t");
 	}
@@ -192,7 +287,171 @@ printast(struct astnode * a, int level)
 			level++;
 			printast(a->u.binop.l, level);
 			printast(a->u.binop.r,level);
-	} 
+		case FORNODE: 
+		      	printf("FOR\n");
+			for (int i =0;i<level;i++){
+				printf("\t");
+			}
+			printf("INIT:\n");
+			level++;
+			printast(a->u.forNode.initial_clause,level);
+			for (int i =0;i<level;i++){
+				printf("\t");
+			}
+			printf("COND:\n");
+			printast(a->u.forNode.expression1,level);
+			for (int i =0;i<level;i++){
+				printf("\t");
+			}
+			printf("BODY:\n");
+			printast(a->u.forNode.statement,level);
+			for (int i =0;i<level;i++){
+				printf("\t");
+			}
+			printf("INCR:\n");
+			printast(a->u.forNode.expression2,level); 
+	       	     	break;	      
+			
+		case SYMBOL:
+			printf("SYMBOL: %s\n", a->u.symbol->name); 
+			break;	
+		case COMPOUND:
+			printf("LIST:\n {\n");
+			level++;
+			a = a->u.compound.statements;
+			while(a){
+				printast(a,level);
+				a = a->next;
+			}
+			
+			printf("}\n");
+			break;
+		case FUNCTION:
+			printf("FUNCTION:\n");
+			for (int i =0;i<level;i++){
+				printf("\t");
+			}
+			printf("LIST:\n {\n");
+			level++;
+			a = a->u.compound.statements;
+			while(a){
+				printast(a,level);
+				a = a->next;
+			}
+			printf("}\n");
+			break;
+		case LABELNODE:
+			printf("LABELNODE \n ");
+			level++;
+			for (int i =0;i<level;i++){
+				printf("\t");
+			}
+			printast(a->u.label.label,level);
+			a = a->u.label.statement;
+			while(a) { 
+				printast(a,level);
+			       	a = a->next; 	
+			} 
+			break;
+		case SIMPLESTMT:
+		        // check here what type of simple statement is present and deal
+			// with it accordingly	
+			switch(a->u.simple.type){
+				case CASE:
+					printf("CASE");
+					level++;
+					printast(a->u.simple.exp,level);
+					break;
+				case DEFAULT: 
+					printf("DEFAULT");
+					level++;
+					printast(a->u.simple.exp,level);
+					break;
+				case CONTINUE: 
+					printf("CONTINUE STATEMENT\n");
+					break;
+				case BREAK:
+					printf("BREAK STATEMENT\n");
+					break;
+				case RETURN:
+					printf("RETURN STATEMENT\n");
+					if (a->u.simple.exp) { 
+						printf("RETURN EXP");
+						level++;
+						printast(a->u.simple.exp,level);
+					} 
+					break;
+			}
+			printf("____________________________\n");
+			break;
+		case  SWITCHNODE: 
+			printf("SWITCH: CONDITION\n");
+			level++;
+			printast(a->u.ifNode.exp,level);
+			printast(a->u.ifNode.statement,level);	
+			break;
+		case IFNODE: 
+			printf("IF: \n");
+			level++;
+			for (int i =0;i<level;i++){
+				printf("\t");
+			}
+			printf("CONDITION:\n");
+			level++;
+			printast(a->u.ifNode.exp,level);
+			level--;
+			for (int i =0;i<level;i++){
+				printf("\t");
+			}
+			printf("STATEMENT:\n");
+			level++;
+			printast(a->u.ifNode.statement,level);
+			if(a->u.ifNode.elseStatement){
+				level--;
+				for (int i =0;i<level;i++){
+					printf("\t");
+				}
+				printf("ELSE STATEMENT");
+				level++;
+				printast(a->u.ifNode.elseStatement, level);
+			}
+			break;
+		case WHILENODE:
+			printf("WHILE: \n");
+			level++;
+			for (int i =0;i<level;i++){
+				printf("\t");
+			}
+			printf("CONDITION:\n");
+			level++;
+			printast(a->u.ifNode.exp,level);
+			level--;
+			for (int i =0;i<level;i++){
+				printf("\t");
+			}
+			printf("STATEMENT:\n");
+			level++;
+			printast(a->u.ifNode.statement,level);
+			break;
+		case DONODE:
+			printf("DO WHILE: \n");
+			level++;
+			for (int i =0;i<level;i++){
+				printf("\t");
+			}
+			printf("STATEMENT:\n");
+			level++;
+			printast(a->u.ifNode.statement,level);
+			level--;
+			for (int i =0;i<level;i++){
+				printf("\t");
+			}
+			printf("CONDITION:\n");
+			level++;
+			printast(a->u.ifNode.exp,level);
+			break;
+	}
+	FINISH:;	
 }
 void printarg(struct listarg * l ,int level)
 {
@@ -214,7 +473,7 @@ void printarg(struct listarg * l ,int level)
 }
 
 void 
-yyerror(char*s,...)
+yyerror(const char * s,...)
 {
 	va_list ap;
 	va_start(ap, s);
@@ -232,6 +491,8 @@ main()
 	currentScope->next = NULL;
 	currentScope->scopeType = GLOBALSCOPE;
 	currentScope->previous = NULL;
+	withinLoop = 0;
+	tmpCounter = 0;
 	return yyparse();
 }
 
@@ -341,11 +602,18 @@ scope2name(int token)
 struct scope *
 newSymbolTable(struct scope * currentScope, int scopeType)
 {
+	// Make sure you are allowed to create this cope here. 
+	if(currentScope->scopeType == GLOBALSCOPE && scopeType !=FUNCTIONSCOPE) { 
+		yyerror("YOU ARE ONLY ALLOWED TO CREATE A FUNCTIONSCOPE IN GLOBALSCOPE");
+		return NULL;
+	} 
+
 	//create a new scope
 	struct scope * newScope = malloc(sizeof(struct scope));
 	//link them
 	newScope->previous = currentScope;
 	newScope->scopeType = scopeType;
+	newScope->done = 0;
 	currentScope->next = newScope;
 	//return new current scope
 	return newScope;
@@ -354,11 +622,13 @@ newSymbolTable(struct scope * currentScope, int scopeType)
 struct scope *  
 destroySymbolTable(struct scope *s)
 {
-	// need to find the next scope that isnt function
+	// need to find the next scope that isnt function,
+	// unless we are still within a function...
 	struct scope * returningScope  = s->previous;
-	while(returningScope->scopeType == FUNCTIONSCOPE){
+	while(returningScope->scopeType == FUNCTIONSCOPE && returningScope->done==1){
 		returningScope = returningScope->previous;
 	}
+
 	struct symbol * sym = s->last;
 	while (sym){
 		
@@ -366,7 +636,10 @@ destroySymbolTable(struct scope *s)
 		free(sym);
 		sym = temp;
 	}
-	free(s);
+	// only free if it is not a function scope
+	if (s->scopeType != FUNCTIONSCOPE) {
+		free(s);
+	}
 	return returningScope;
 }
 
@@ -385,9 +658,9 @@ findSymbol(struct scope *lookingScope, char * name, int nameSpace)
 	struct scope * nextScope = lookingScope->previous;
 	if (nextScope){
 		return findSymbol(nextScope,name,nameSpace);
-	} else{
-		return NULL;
 	}
+	return NULL;
+	
 	// if there are no scopes just return null
 
 }
@@ -503,10 +776,9 @@ enterNewVariable(struct scope *enteringScope, int nameSpace, struct superSpec * 
 				newType = newType->u.spec.next;	
 			}
 			newSymbol->type = currentType->t;
-			currentType = currentType->next;
 				
 		} 
-		
+		currentType = currentType->next;
 		enteringScope->last = newSymbol;
 		if (superScope){
 			superScope->last = superSymbol;
@@ -548,11 +820,12 @@ printSymbol(struct symbol * last)
 	} 
 }
 void 
-printStructMembers(struct symbol * structSymbol)
+printStructMembers(struct scope * structScope)
 {
 	printf("With the following members:\n");
 	printf("_______________________________________________________\n");
-       	while(structSymbol){
+	struct symbol * structSymbol = structScope->last;
+	while(structSymbol){
 		printSymbol(structSymbol);
 		structSymbol = structSymbol->previous;
 	}
@@ -585,4 +858,431 @@ addInitType(int nodetype, int newVal, struct astnode * decl_specs)
 		
 	} 	
 	return newAst;
+}
+
+struct astnode *
+createStruct(struct scope * currentScope, struct symbol * structSymbol, struct scope * field_list, int isUnion)
+{
+	struct symbol * ident = findSymbol(currentScope, structSymbol->name, STRUCTSPACE);
+	if (ident== NULL){			
+		// need to enter into the symbol table over here.
+		// field list must return a stack of symbols? (or mayb
+		// a paramter list) 
+		struct astnode * structType = malloc(sizeof(struct astnode));
+		structType->nodetype = TYPE;
+		if (isUnion){
+			structType->u.spec.val = UNIONTYPE ;
+		}else{
+			structType->u.spec.val = STRUCTTYPE ;
+		}
+		structType->u.spec.params = field_list->last;	
+		structSymbol->type = structType;
+		structSymbol->previous = currentScope->last;
+		structSymbol->definedScope = currentScope;
+		currentScope->last = structSymbol;
+		printVariable(currentScope,line, file_name);
+		printStructMembers(field_list);
+		return structType;
+	} else {
+		yyerror("This (%s) has already been defined, you are not allowed to redefine it.", structSymbol->name);
+	}
+
+}
+
+struct astnode *
+addCondStatement(int conditionType,struct astnode * exp, struct astnode * statement, struct astnode * elseStatement) 
+{
+	
+	
+	struct astnode * ifNode = malloc(sizeof(struct astnode));
+	ifNode->nodetype = conditionType;
+	ifNode->u.ifNode.exp = exp;
+	ifNode->u.ifNode.statement = statement;
+	ifNode->u.ifNode.elseStatement = elseStatement;
+	return ifNode; 
+	
+}
+
+struct astnode * 
+createCompoundAst(int type, struct astnode * decl_or_stmt)
+{
+	struct astnode * compound  = malloc(sizeof(struct astnode));
+	compound->nodetype = type;
+	compound->u.compound.statements = decl_or_stmt;
+	return compound;
+}
+
+void
+notInGlobalScope() 
+{ 
+	if(currentScope -> scopeType == GLOBALSCOPE) { 
+		yyerror("STATEMENT IS NOT ALLOWED TO BE IN GLOBAL SCOPE");
+	} 	
+
+} 	
+
+struct astnode * 
+addForNode(struct astnode * initial_clause, struct astnode * expression1, struct astnode * expression2, struct astnode * statement)
+{
+		struct astnode * forNode = malloc(sizeof(struct astnode));
+		forNode->nodetype = FORNODE;
+		forNode->u.forNode.initial_clause = initial_clause;
+		forNode->u.forNode.expression1 = expression1;
+		forNode->u.forNode.expression2 = expression2;
+		forNode->u.forNode.statement = statement;
+		return forNode;
+}
+
+struct astnode * 
+addSimpleStmt(int type, struct astnode * exp)
+{
+
+	struct astnode * simple = malloc(sizeof(struct astnode));
+	simple->nodetype = SIMPLESTMT;
+	simple->u.simple.type = type;
+	simple->u.simple.exp = exp;
+	return simple;
+	
+}
+
+struct astnode * 
+addBreakStmt()
+{
+	struct scope * enteringScope = currentScope; 	
+	while (enteringScope && enteringScope->scopeType != SWITCHSCOPE)  {
+			enteringScope = enteringScope->previous;
+	} 
+	// need to verify there is some loop or switch statement.
+	if (withinLoop == 0 && !enteringScope) {
+		yyerror("BREAK STATEMENT MUST BE WITHIN A LOOP OR SWITCH STATEMENT");
+		return NULL;
+	}	
+	struct astnode * simple = malloc(sizeof(struct astnode));
+	simple->nodetype = SIMPLESTMT;
+	simple->u.simple.type = BREAK;
+	simple->u.simple.exp = NULL;
+	return simple;
+	
+}
+
+struct astnode * 
+addContStmt()
+{
+	if (withinLoop == 0 ) {
+		yyerror("CONTINUE STATEMENT MUST BE WITHIN A LOOP");
+		return NULL;
+	}	
+	struct astnode * simple = malloc(sizeof(struct astnode));
+	simple->nodetype = SIMPLESTMT;
+	simple->u.simple.type = CONTINUE;
+	simple->u.simple.exp = NULL;
+	return simple;
+
+
+}
+
+
+struct astnode * 
+addCaseStmt(int type, int val)
+{
+	if(currentScope->scopeType != SWITCHSCOPE){
+		yyerror("CASE OR DEFAULT CAN ONLY BE USED IN SWITCH STATEMENTS %d", currentScope->scopeType);
+		return NULL;
+	}
+	// need to make sure it is not in the symbol table
+	// and if it is we need to raise an error
+	char integerHolder[40]= "default";
+	if ( type == CASE) {
+		 sprintf(integerHolder, "%d", val);	
+	} 
+
+	char * name = integerHolder; 
+	
+	
+	struct symbol * sameName = findSymbol(currentScope, name, SWITCHSPACE);
+	if (sameName != NULL) {
+		yyerror("DUPLICATE CASE OR DEFAULT STATEMENT %s", name);
+		return NULL;
+	}
+	// now need to add it to the symbol table	
+	struct symbol * labelSymb = malloc(sizeof(struct symbol));
+	labelSymb->nameSpace = SWITCHSPACE;
+	labelSymb->name = strdup(name);
+	labelSymb->previous = currentScope->last;
+	labelSymb->definedScope  = currentScope;
+	currentScope->last = labelSymb;
+	struct astnode * simple = malloc(sizeof(struct astnode));
+	simple->nodetype = SIMPLESTMT;
+	simple->u.simple.type = type;
+	if (type == CASE) {
+		NUMS v;
+		v.i = val;
+		simple->u.simple.exp = newNum(CONST_INT_OP,0,v) ;
+	} 
+	return simple;
+
+
+}
+
+struct astnode * 
+addLabelStatement( struct astnode * label, struct astnode * statement) 
+{
+	struct scope * enteringScope = currentScope;
+	struct astnode * labelNode = malloc(sizeof(struct astnode));
+	char * name = NULL;
+	struct symbol * sameName = NULL;
+	// only proceed if we are in a simple named label.
+	if (label->nodetype == NAMEDLABEL){
+		while (enteringScope && enteringScope->scopeType != FUNCTIONSCOPE)  {
+			enteringScope = enteringScope->previous;
+		} 
+		
+		if( !enteringScope ||enteringScope -> scopeType != FUNCTIONSCOPE || enteringScope -> done ==1) {
+			yyerror("LABEL CAN ONLY BE IN A FUNCTION SCOPE");
+			return NULL;
+		}
+		name = label->u.ident.name; 
+		// PUT IT INTO THE SYMBOL TABLE
+		struct symbol * labelSymb = malloc(sizeof(struct symbol));
+		labelSymb->nameSpace = LABELSSPACE;
+		labelSymb->type = labelNode;
+		labelSymb->name = name;
+		labelSymb->previous = enteringScope->last;
+		labelSymb->definedScope  = enteringScope;
+		enteringScope->last = labelSymb;
+		sameName = findSymbol(currentScope, name, LABELSSPACE);
+	}
+	if (sameName){
+		//RAISE ERROR
+		yyerror("DUPLICATE LABEL DEFINITION: %s", name);
+		return NULL;
+	}else{ 
+		labelNode -> nodetype = LABELNODE;
+		labelNode -> u.label.label = label;
+		labelNode -> u.label.statement = statement; 
+	}
+	return labelNode;
+}
+
+
+char * 
+resolveTarget(struct astnode * target, char * buf) 
+{
+	// need to verify if thing can be a left value.
+	// at this point just chech if it is a tmp
+	// if it is not raise and error, later we can have more
+	// complete type checking.	
+	if (target ->nodetype == TMP) {
+		sprintf(buf, "%%T%d", target->u.tmp.num);
+		return buf;
+	}else if(target->nodetype==SYMBOL){ 
+		sprintf(buf, "%s",target->u.symbol->name );
+		return buf;
+	}else{
+		yyerror("TARGET IS NOT A PROPER LVALUE");
+		return NULL;
+	}	
+}
+
+char *
+resolveQ(struct astnode * node, char * buf, int op)
+{
+	// at this point there are two options
+	// either a tmp or a contstant
+	if(op != MOV && op !=LEA && op != LOAD && node->q && node->q->target->nodetype) {
+		return resolveTarget(node->q->target, buf);
+	}else if(node->nodetype == CONST_INT_OP) {
+		sprintf(buf, "%d", node->u.num.val.i);
+		return buf;
+	}else if (node->nodetype == SYMBOL) { 
+		sprintf(buf, "%s", node->u.symbol->name);
+		return buf;
+	}else{
+		return resolveTarget(node, buf);
+	}  
+}
+void 
+printQuad(struct astnode * head)
+{
+	// need to reverse the order and start from the bottom.
+	// we do not need to re-traverse the tree, everything we need 
+	// is at the head node, just in reverse order. 
+	
+	
+	struct quad * q = head->q;
+	struct quad * prev = NULL;
+	struct quad * next = NULL;
+	char buf[10];
+	char buf1[10];
+	char buf2[10];
+	while(q) {
+			next = q->prevQuad;
+			q->prevQuad = prev;
+			prev  = q;
+			if (next == NULL) {
+				break;
+			} 	
+			q = next;
+	} 	
+	
+	
+
+	// now that the Quads are the right side up we will just print it
+	while(q) {
+		switch(q->opcode) 
+			{
+				case '*':
+					printf("%s = 	MUL %s, %s\n",resolveTarget(q->target, buf), resolveQ(q->left, buf1,q->opcode), resolveQ(q->right,buf2,q->opcode));	
+				break;
+				case '/':
+					printf("%s = 	DIV %s, %s\n",resolveTarget(q->target, buf), resolveQ(q->left, buf1,q->opcode), resolveQ(q->right,buf2,q->opcode));	
+				break;
+				case '%':
+					printf("%s = 	MOD %s, %s\n",resolveTarget(q->target, buf), resolveQ(q->left, buf1,q->opcode), resolveQ(q->right,buf2,q->opcode));	
+				break;
+				case '+':
+					printf("%s = 	ADD %s, %s\n",resolveTarget(q->target, buf), resolveQ(q->left, buf1,q->opcode), resolveQ(q->right,buf2,q->opcode));	
+				break;
+				case '-':
+					printf("%s = 	SUB %s, %s\n", resolveTarget(q->target,buf), resolveQ(q->left,buf1,q->opcode), resolveQ(q->right,buf2,q->opcode)); 
+				break;
+				case SHL:
+					printf("%s = 	SHL %s, %s\n", resolveTarget(q->target,buf), resolveQ(q->left,buf1,q->opcode), resolveQ(q->right,buf2,q->opcode)); 
+				break;
+				case SHR:
+					printf("%s = 	SHR %s, %s\n", resolveTarget(q->target,buf), resolveQ(q->left,buf1,q->opcode), resolveQ(q->right,buf2,q->opcode)); 
+				break;
+				case '&':
+					printf("%s = 	AND %s, %s\n", resolveTarget(q->target,buf), resolveQ(q->left,buf1,q->opcode), resolveQ(q->right,buf2,q->opcode)); 
+				break;
+				case '^':
+					printf("%s = 	XOR %s, %s\n", resolveTarget(q->target,buf), resolveQ(q->left,buf1,q->opcode), resolveQ(q->right,buf2,q->opcode)); 
+				break;
+				case '|':
+					printf("%s = 	OR %s, %s\n", resolveTarget(q->target,buf), resolveQ(q->left,buf1,q->opcode), resolveQ(q->right,buf2,q->opcode)); 
+				break;
+				case '=':
+					printf("%s =	MOV %s\n", resolveTarget(q->left,buf), resolveQ(q->right, buf1,q->opcode));
+				break;
+				case MOV:
+					printf("%s =	MOV %s\n", resolveTarget(q->target, buf), resolveQ(q->right, buf1,q->opcode));
+				break;
+				case LOAD:
+					printf("%s =	LOAD %s\n", resolveTarget(q->target, buf), resolveQ(q->right, buf1,q->opcode));
+				break;	
+				case STORE:
+					printf("	STORE %s %s\n", resolveTarget(q->right,buf), resolveQ(q->left, buf1, q->opcode));
+				break;
+				case LEA:
+					printf("%s =	LEA %s\n", resolveTarget(q->target, buf), resolveQ(q->right, buf1,q->opcode));
+				break;
+			}
+		q =q->prevQuad;
+	} 
+}
+
+struct quad * 
+fixPointer(struct quad * bad, struct quad * tQ) 
+{
+	// basically need to move around things in bad and then make it point to 
+	// next thing in tq.
+	bad->opcode = STORE;
+	bad->target = NULL;
+	// will now search tQ until we find the current quad.
+	struct quad * prev = NULL;
+	struct quad * top = tQ;
+	while(tQ) {
+		if (tQ->opcode == '=' && tQ->right->nodetype == CONST_INT_OP){
+				bad->left = tQ->right;
+		}
+		if (tQ == bad)
+			break;
+		// got to get rid of that extra move....
+		else if (tQ->opcode == '=' && tQ->left->q == bad) {
+			struct quad * delete = top;
+			top = top->prevQuad;
+			free(delete);
+			// allow for constants too
+			
+		} else { 
+			prev = tQ;  
+		} 
+		
+
+		tQ = tQ->prevQuad;       
+	}
+	if (tQ->prevQuad && !bad->left) {
+		bad->left = tQ->prevQuad->target; 
+	}	
+	return top;
+}
+
+
+struct quad *
+checkLnode(struct astnode *a, struct quad * tQ) 
+{
+	if (a->nodetype == SIMPLE_BNOP){
+		
+		checkLnode(a->u.binop.l, tQ);
+		checkLnode(a->u.binop.r, tQ);
+	}else if (a->nodetype == SIMPLE_UNOP) { 
+		if(a->u.unop.op == '*'){ 
+			// fix up the * here
+			// it it is simple just call fixPointer
+			// however if it is some arithmetic need 
+			// to call another function
+			if (a->u.unop.c->nodetype == SIMPLE_BNOP){
+				// Do some arithmetic...
+				printf("doing some arithmetic");
+			}else{
+				tQ = fixPointer(a->q, tQ);
+			}
+		}
+		checkLnode(a->u.unop.c, tQ);
+	}else if (a->nodetype == TERNARY_OP){
+		checkLnode(a->u.terop.l, tQ);
+		checkLnode(a->u.terop.c, tQ);
+		checkLnode(a->u.terop.r, tQ);
+	
+	} 
+	return tQ;
+}
+
+
+void 
+fixQuads(struct astnode * a) 
+{ 
+	// first thing I need to check that the head is an assignment
+	if (a->nodetype !=0 || a->u.binop.op != '=') { 
+		return;
+	} 
+	// now we must to a search of the left side of this tree and find all 
+	// the relevant nodes that need to be fixed.
+	
+
+	struct quad * topQuads = a->q;
+
+	a->q = checkLnode(a->u.binop.l, topQuads);
+
 } 
+
+struct basicBlock * 
+emitQuads(struct astnode * compoundAst) 
+{
+	// emit Quads expects a compound ast to be passed in.
+	struct astnode * topAst = compoundAst->u.compound.statements;
+
+	// There are several operators that change their action based on whether they are 
+	// lvalues or rvalues. I have chosen to just treat them as an lvalue and right this 
+	// function to clean it up after the whole ast is build.
+	
+	fixQuads(topAst);	
+		
+	while(topAst) { 
+		// now with each compound ast we got to print
+		// out the corresponding quad
+		printQuad(topAst); 	
+		topAst = topAst->next;
+	}	
+
+}
