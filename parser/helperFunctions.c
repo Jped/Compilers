@@ -1341,6 +1341,11 @@ size(struct astnode * types)
 	if(!types)
 		return 1;
 	struct astnode * type = types->u.spec.next;
+	if(!type){
+		type = types;
+		if (!type)
+			return 1;
+	}
 	switch(type->u.spec.val){
 		default: 
 			return 4;
@@ -1427,6 +1432,23 @@ pointerArithmetic(struct quad * q, struct astnode * a)
 		return adjust;
 	}else if (isPointer(a->u.binop.r) && isPointer(a->u.binop.l)){
 		// pointer pointer arithmetic
+		if(a->u.binop.op == '+'){
+			yyerror("YOU ARE NOT ALLOWED TO ADD TWO POINTERS, ONLY SUBTRACT");
+			return NULL;
+		}else{
+			// now need to do the division by size of pointer.
+			struct quad * adjust = malloc(sizeof(struct quad));
+			memcpy(adjust, q, sizeof(struct quad));
+			q->opcode ='/';
+			q->target = generateTarget();
+			q->target->u.tmp.p = 0;
+			q->left = adjust->target;
+			q->prevQuad = adjust;
+			NUMS v;
+			v.i = size(a->u.binop.l);
+			q->right = newNum(CONST_INT_OP,0,v);
+			return adjust;
+		}
 	}else{
 		// normal addition
 		return NULL;
