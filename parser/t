@@ -1,0 +1,57 @@
+int f() { 
+	int a,b,c;
+	a = (a+b*10) + c;
+
+}
+
+
+int g() { 
+	int b;
+	b = 1;
+
+}
+
+
+
+int k() { 
+	int a,b;
+	b =a;
+}
+
+
+
+int p(){ 
+	int *p;
+	*p = 1;
+}
+
+
+
+int t() { 
+	int *p, a,b;
+	*p = (a+b)*10; 
+
+}
+
+int u() { 
+	int ***p;
+	***p = 1;
+}
+
+
+int v(){ 
+	int a[10],v;
+	v = *a;
+}
+
+int w() { 
+	int v, a[10];
+	v = a[3];
+	a[3] = v;
+}
+
+int x() { 
+	int a[10][20], v;
+	v = a[1][2];
+}
+ 

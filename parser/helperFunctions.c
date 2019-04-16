@@ -10,61 +10,6 @@
 # include "namespace.h"
 # include "ops.h" 
 
-struct quad * 
-linkQuads(struct quad  * l, struct quad * r) 
-{
-	struct quad * tmpR;
-	if (l){ 
-		tmpR = l;
-		while(tmpR->prevQuad) { 
-			tmpR = tmpR->prevQuad;
-		} 
-		tmpR->prevQuad = r;
-	} else { 
-		l = r;
-	}
-	return l; 	
-}
-
-struct astnode *
-augSymbol(struct astnode * symbolNode, int op)
-{
-	// this function serves as a general augmentation function
-	// to a symbol. For example it can be used to Move a variable
-	// or load a pointer to a variable.
-	struct quad *  aug        = malloc(sizeof(struct quad));
-	aug->opcode = op;
-	aug->target = generateTarget(op);
-	aug->right = symbolNode;
-	aug->left = NULL;
-	symbolNode->q = aug;
-	return symbolNode;
-}
-
-
-struct quad * 
-generateQuad(struct astnode * left, struct astnode * right, struct astnode * target, int op) 
-{
-	// got to check if left or right is a symbol...
-	struct quad * q = malloc(sizeof(struct quad));
-	q->opcode = op;
-	switch(op) { 
-		default: 
-			q->left	  = left->nodetype == SYMBOL ? augSymbol(left, MOV) :left; 
-		break;
-		case '=': 
-			// this is placed in order to get the ident to be a lvalue in an equal 
-			// statement
-			q->left = left;
-		break;	
-		
-	} 
-	q->right  = right->nodetype == SYMBOL? augSymbol(right, MOV) :right;
-	q->prevQuad = linkQuads(left->q, right->q);
-	q-> target= target;
-	// got to link the two quads together.
-	return q;
-}
 	
 struct astnode * 
 newTerop(int nodetype, int op, struct astnode *l, struct astnode *c, struct astnode *r)
@@ -78,19 +23,6 @@ newTerop(int nodetype, int op, struct astnode *l, struct astnode *c, struct astn
 	return a;
 
 }
-struct astnode * 
-generateTarget(int nodetype) 
-{
-	struct astnode * target = NULL; 
-	if (nodetype != '='){
-		target  = malloc(sizeof(struct astnode));
-		target->nodetype = TMP;
-		target->u.tmp.num = tmpCounter;
-		tmpCounter +=1;
-	}
-	return target;
-}
-
 struct astnode *
 newBinop(int nodetype, int op, struct astnode *l, struct astnode *r)
 {
@@ -99,9 +31,6 @@ newBinop(int nodetype, int op, struct astnode *l, struct astnode *r)
 	a->u.binop.op = op;
 	a->u.binop.l = l;
 	a->u.binop.r = r;
-	struct astnode * target = generateTarget(op);
-	struct quad * q = generateQuad(l,r,target,op); 
-	a->q = q;
 	return a;
 }
 
@@ -113,23 +42,6 @@ newUnop(int nodetype, int op, struct astnode *c)
 	a->nodetype = nodetype;
 	a->u.unop.op = op;
 	a->u.unop.c = c;
-	struct quad * q = NULL;
-	switch(op){
-		case '*':
-			if (c->nodetype == SYMBOL && c->u.symbol->type->u.spec.val == ARRAYTYPE){
-				q = augSymbol(c, LEA)->q;
-				struct quad * load = malloc(sizeof(struct quad));
-				load->opcode = LOAD;
-				load->right = q->target;
-				load->target = generateTarget(LOAD);
-				load->prevQuad = q;
-				q = load;
-			} else { 
-				q = augSymbol(c, LOAD)->q;
-			}
-		break;
-	}
-	a->q = q;
 	return a;	
 
 }
@@ -1071,10 +983,13 @@ resolveTarget(struct astnode * target, char * buf)
 	// need to verify if thing can be a left value.
 	// at this point just chech if it is a tmp
 	// if it is not raise and error, later we can have more
-	// complete type checking.	
+	// complete type checking.
+	
 	if (target ->nodetype == TMP) {
 		sprintf(buf, "%%T%d", target->u.tmp.num);
 		return buf;
+	}else if(target->nodetype == SIMPLE_BNOP){
+		return resolveTarget(target->q->target, buf);
 	}else if(target->nodetype==SYMBOL){ 
 		sprintf(buf, "%s",target->u.symbol->name );
 		return buf;
@@ -1115,22 +1030,25 @@ printQuad(struct astnode * head)
 	char buf[10];
 	char buf1[10];
 	char buf2[10];
-	while(q) {
-			next = q->prevQuad;
-			q->prevQuad = prev;
-			prev  = q;
-			if (next == NULL) {
-				break;
-			} 	
-			q = next;
-	} 	
+	while(q->prevQuad && q->prevQuad->opcode!=-1){
+		next = q->prevQuad;
+		q->prevQuad = prev;
+		prev  = q;
+		if (next == NULL) {
+			break;
+		} 	
+		q = next;
+	}
+	if(q){
+		q->prevQuad = prev;
+	}
 	
-	
-
 	// now that the Quads are the right side up we will just print it
 	while(q) {
+
 		switch(q->opcode) 
 			{
+
 				case '*':
 					printf("%s = 	MUL %s, %s\n",resolveTarget(q->target, buf), resolveQ(q->left, buf1,q->opcode), resolveQ(q->right,buf2,q->opcode));	
 				break;
@@ -1162,109 +1080,215 @@ printQuad(struct astnode * head)
 					printf("%s = 	OR %s, %s\n", resolveTarget(q->target,buf), resolveQ(q->left,buf1,q->opcode), resolveQ(q->right,buf2,q->opcode)); 
 				break;
 				case '=':
-					printf("%s =	MOV %s\n", resolveTarget(q->left,buf), resolveQ(q->right, buf1,q->opcode));
+					printf("%s =	MOV %s\n", resolveTarget(q->left,buf), resolveQ(q->left, buf1,q->opcode));
 				break;
 				case MOV:
-					printf("%s =	MOV %s\n", resolveTarget(q->target, buf), resolveQ(q->right, buf1,q->opcode));
+					printf("%s =	MOV %s\n", resolveTarget(q->target, buf), resolveQ(q->left,buf1, MOV));
 				break;
 				case LOAD:
-					printf("%s =	LOAD %s\n", resolveTarget(q->target, buf), resolveQ(q->right, buf1,q->opcode));
+					printf("%s =	LOAD %s\n", resolveTarget(q->target, buf), resolveQ(q->left, buf1,q->opcode));
 				break;	
 				case STORE:
 					printf("	STORE %s %s\n", resolveTarget(q->right,buf), resolveQ(q->left, buf1, q->opcode));
 				break;
 				case LEA:
-					printf("%s =	LEA %s\n", resolveTarget(q->target, buf), resolveQ(q->right, buf1,q->opcode));
+					printf("%s =	LEA %s\n", resolveTarget(q->target, buf), resolveQ(q->left, buf1,q->opcode));
 				break;
 			}
 		q =q->prevQuad;
 	} 
 }
 
+
+struct astnode * 
+generateTarget() 
+{
+	struct astnode * target = NULL; 
+	target  = malloc(sizeof(struct astnode));
+	target->nodetype = TMP;
+	target->u.tmp.num = tmpCounter;
+	tmpCounter +=1;
+	return target;
+}
+
 struct quad * 
-fixPointer(struct quad * bad, struct quad * tQ) 
+linkQuads(struct quad  * l, struct quad * r) 
 {
-	// basically need to move around things in bad and then make it point to 
-	// next thing in tq.
-	bad->opcode = STORE;
-	bad->target = NULL;
-	// will now search tQ until we find the current quad.
-	struct quad * prev = NULL;
-	struct quad * top = tQ;
-	while(tQ) {
-		if (tQ->opcode == '=' && tQ->right->nodetype == CONST_INT_OP){
-				bad->left = tQ->right;
-		}
-		if (tQ == bad)
-			break;
-		// got to get rid of that extra move....
-		else if (tQ->opcode == '=' && tQ->left->q == bad) {
-			struct quad * delete = top;
-			top = top->prevQuad;
-			free(delete);
-			// allow for constants too
-			
-		} else { 
-			prev = tQ;  
+	// puts |_r_| on the bottom
+	struct quad * tmpR;
+	if (l && l->opcode!=-1){ 
+		tmpR = l;
+		while(tmpR && tmpR->opcode !=-1 && tmpR->prevQuad) { 
+			tmpR = tmpR->prevQuad;
 		} 
-		
-
-		tQ = tQ->prevQuad;       
+		tmpR->prevQuad = r;
+	} else { 
+		l = r;
 	}
-	if (tQ->prevQuad && !bad->left) {
-		bad->left = tQ->prevQuad->target; 
-	}	
-	return top;
+	return l; 	
 }
 
-
-struct quad *
-checkLnode(struct astnode *a, struct quad * tQ) 
+struct astnode *
+resolveLvalues(struct quad * q, struct astnode * a)
 {
-	if (a->nodetype == SIMPLE_BNOP){
-		
-		checkLnode(a->u.binop.l, tQ);
-		checkLnode(a->u.binop.r, tQ);
-	}else if (a->nodetype == SIMPLE_UNOP) { 
-		if(a->u.unop.op == '*'){ 
-			// fix up the * here
-			// it it is simple just call fixPointer
-			// however if it is some arithmetic need 
-			// to call another function
-			if (a->u.unop.c->nodetype == SIMPLE_BNOP){
-				// Do some arithmetic...
-				printf("doing some arithmetic");
-			}else{
-				tQ = fixPointer(a->q, tQ);
-			}
-		}
-		checkLnode(a->u.unop.c, tQ);
-	}else if (a->nodetype == TERNARY_OP){
-		checkLnode(a->u.terop.l, tQ);
-		checkLnode(a->u.terop.c, tQ);
-		checkLnode(a->u.terop.r, tQ);
-	
-	} 
-	return tQ;
+	struct quad * j  = malloc(sizeof(struct quad));
+	if(a->nodetype == SYMBOL || a->nodetype == CONST_INT_OP) {
+		q->opcode = -1;
+		return a;	
+	}else if(a->nodetype == SIMPLE_BNOP) {
+		// need to check here for pointer arithmetic,
+		// I can do this by looking down either side and seeing what
+		// the type is ...
+		struct quad * k  = malloc(sizeof(struct quad));
+		q = malloc(sizeof(struct quad));
+		if (a->u.binop.op == '=')
+			printf("WHY IS THIS HERE\n");
+		q->opcode = a->u.binop.op;
+		q->left = resolveLvalues(j , a->u.binop.l);
+		q->right= resolveLvalues(k, a->u.binop.r);
+		q->target= generateTarget();
+		struct quad * newQ  = pointerArithmetic(q,a);
+		q->prevQuad = linkQuads(j,k);
+		if (newQ) {
+			newQ->prevQuad = q->prevQuad;
+			q->prevQuad  = newQ;
+		} 
+		return q->target;
+	} else if(a->nodetype == SIMPLE_UNOP) {
+		q = malloc(sizeof(struct quad));
+		if(a->u.unop.op == '*'){
+			q->opcode = STORE;
+			q->left = NULL;
+			q->right = resolveRvalues(j, a->u.unop.c,1);
+			q->prevQuad = j;
+			a->q= q;
+			a->nodetype = STORE;
+			return a;
+		}else {
+			q->opcode = a->u.unop.op;
+			q->left   = resolveRvalues(j,a->u.unop.c,1);
+			q->target = generateTarget();
+			q->prevQuad = j;
+			return q->target;
+		} 
+	     
+	}
+	a->nodetype = TMP;
+	a->u.tmp.num = q->target->u.tmp.num;
+       	a->q = q;
+	return a;	
+
 }
+
+
+struct astnode * 
+resolveRvalues(struct quad* q, struct astnode * a,int p) 
+{
+	struct quad * j  = malloc(sizeof(struct quad));
+	if(a->nodetype == SYMBOL || a->nodetype == CONST_INT_OP) {
+	 	if (p == 1 && a->nodetype == SYMBOL && getType(a) == ARRAYTYPE){
+			q->opcode = LEA;
+			q->left = a;
+			q->target = generateTarget();
+			q->target->u.tmp.p = p;
+			struct astnode * b = malloc(sizeof(struct astnode));
+			b->nodetype = TMP;
+			b->u.tmp.num = q->target->u.tmp.num;
+			b->u.tmp.p = p;
+			b->q = q;	
+			return b;
+		}else{
+			q->opcode = -1;
+			return a;
+		}
+	} else if(a->nodetype == SIMPLE_BNOP) {
+		// need to check here for pointer arithmetic,
+		// I can do this by looking down either side and seeing what
+		// the type is ...
+		struct quad * k  = malloc(sizeof(struct quad));
+		q->opcode = a->u.binop.op;
+		q->left = resolveRvalues(j, a->u.binop.l,p);
+		q->right = resolveRvalues(k, a->u.binop.r,p);
+		q->target = generateTarget();	
+		struct quad * newQ  = pointerArithmetic(q,a);
+		q->prevQuad = linkQuads(j,k);
+		if (newQ) {
+			newQ->prevQuad = q->prevQuad;
+			q->prevQuad  = newQ;
+		} 
+	} else if(a->nodetype == SIMPLE_UNOP) {
+		int p = a->u.unop.op == '*' ? 1: 0;
+		struct astnode * left = resolveRvalues(j,a->u.unop.c,p);
+		// got to also verify that we do not do double load on multidim array
+		//TODO: figure out what to check the opcode, cause store does not have target
+		if(p  && (a->u.unop.c->nodetype==SYMBOL || a->u.unop.c->q->target->u.tmp.p!=1)){
+			q->opcode = LOAD;
+		}else if (a->u.unop.op == '&') {
+			q->opcode = ADDR;
+		}else {
+			q->opcode = a->u.unop.op;
+		}
+		
+		if(p && a->u.unop.c->nodetype!=SYMBOL &&a->u.unop.c->q->target->nodetype == TMP && a->u.unop.c->q->target->u.tmp.p ==1){	
+			memcpy(q,j, sizeof(struct quad));
+		} else {
+	       		q->left = left;
+			q->target = generateTarget();
+			q->prevQuad = j;
+		}
+	} else if(a->nodetype == TERNARY_OP) {
+		// TODO.
+	}
+	a->nodetype = TMP;
+	a->u.tmp.num = q->target->u.tmp.num;
+	a->u.tmp.p = q->target->u.tmp.p;
+       	a->u.tmp.size = q->target->u.tmp.size;
+	a->q = q;
+	return a;       
+}
+
 
 
 void 
-fixQuads(struct astnode * a) 
-{ 
-	// first thing I need to check that the head is an assignment
-	if (a->nodetype !=0 || a->u.binop.op != '=') { 
-		return;
+buildQuads(struct astnode * topAst)
+{
+	struct quad * q = malloc(sizeof(struct quad));
+	//check if it is an equal statement
+	if (topAst->nodetype == SIMPLE_BNOP && topAst->u.binop.op == '='){
+		struct quad * k = malloc(sizeof(struct quad));
+		if (topAst->nodetype == SIMPLE_BNOP && topAst->u.binop.r->q && topAst->u.binop.r->q->opcode == STORE) {
+			q->left = topAst->u.binop.l;
+			topAst->q = linkQuads(q,k);
+		} else {
+			// make it a mov or a store.
+			struct quad * topQ = malloc(sizeof(struct quad));
+			struct astnode * a = resolveLvalues(q, topAst->u.binop.l);
+			topQ->left = resolveRvalues(k, topAst->u.binop.r,0);
+			if (a->nodetype == STORE){
+				topQ->opcode = STORE;
+				topQ->right = a->q->right;
+				topQ->prevQuad = linkQuads(a->q->prevQuad,k);
+			}else{
+				topQ->target = a;
+				topQ->opcode = MOV;
+				topQ->prevQuad = linkQuads(q,k);
+			}
+			topAst->q = topQ;
+		} 
+	}else if (topAst->nodetype == SIMPLE_BNOP) {
+		struct quad * k = malloc(sizeof(struct quad));
+		resolveRvalues(q, topAst->u.binop.r,0);
+		resolveRvalues(k, topAst->u.binop.l,0);
+		topAst->q = linkQuads(q,k);
+	}else if(topAst->nodetype == SIMPLE_UNOP) {
+		resolveRvalues(q, topAst->u.unop.c,0);
+		topAst->q = q;
+	}else if(topAst->nodetype == TERNARY_OP) {
 	} 
-	// now we must to a search of the left side of this tree and find all 
-	// the relevant nodes that need to be fixed.
-	
+}
+ 
 
-	struct quad * topQuads = a->q;
 
-	a->q = checkLnode(a->u.binop.l, topQuads);
-
-} 
 
 struct basicBlock * 
 emitQuads(struct astnode * compoundAst) 
@@ -1272,17 +1296,141 @@ emitQuads(struct astnode * compoundAst)
 	// emit Quads expects a compound ast to be passed in.
 	struct astnode * topAst = compoundAst->u.compound.statements;
 
-	// There are several operators that change their action based on whether they are 
-	// lvalues or rvalues. I have chosen to just treat them as an lvalue and right this 
-	// function to clean it up after the whole ast is build.
-	
-	fixQuads(topAst);	
-		
 	while(topAst) { 
 		// now with each compound ast we got to print
 		// out the corresponding quad
+		buildQuads(topAst);	
 		printQuad(topAst); 	
 		topAst = topAst->next;
 	}	
 
 }
+
+
+int
+getType(struct astnode * symbol)
+{	
+	// loop through all of the pointers...
+	if (!symbol->u.symbol)
+		return -1;
+	struct astnode * types = symbol->u.symbol->type;
+	while(types->u.spec.next && types->u.spec.val == PNTRTYPE){
+		types = types->u.spec.next;
+
+	}
+	return types->u.spec.val;
+}
+
+int 
+isPointer(struct astnode *a) 
+{
+	if (a->nodetype == TMP && a->u.tmp.p == 1)
+		return 1;
+	// just got to peak for the first one
+	if (a->nodetype != SYMBOL)
+		return 0;
+	struct astnode * types = a->u.symbol->type;
+	if (types->u.spec.val == PNTRTYPE || types->u.spec.val == ARRAYTYPE)
+		return 1;
+	return 0;
+}
+
+int 
+size(struct astnode * types)
+{
+	if(!types)
+		return 1;
+	struct astnode * type = types->u.spec.next;
+	switch(type->u.spec.val){
+		default: 
+			return 4;
+		case SHORT:
+		       	return 2;
+		case  INTEGER:
+		      	return 4;
+		case  LONG:
+		      	return 8;
+		case LONGLONG:
+		     	return 8;
+		case CHR:
+		    	return 1;
+		case FLT:
+	 	     	return 4;
+		case DBLE:
+		     	return 8;
+		case PNTRTYPE:
+			return 8;
+		case ARRAYTYPE:
+			return type->u.spec.size * size(type);	
+	
+	}
+}
+
+struct quad * 
+adjustedArithmetic(struct astnode *a, int sizeType)
+{
+	struct quad * q = malloc(sizeof(struct quad));
+	// have to figure out why/when we need to divide
+	NUMS v;
+	v.i = sizeType;	
+	struct astnode * size =newNum(CONST_INT_OP,0,v);
+	// mul
+	q->opcode = '*';	
+	q->left = a;
+	q->right = size;
+	q->prevQuad = NULL;
+	q->target = generateTarget();
+	return q;
+}
+
+int midSize(struct astnode *a)
+{
+	if (a->nodetype == TMP)
+		return a->u.tmp.size;
+	else if (a->nodetype == SYMBOL)
+		return size(a->u.symbol->type->u.spec.next);
+	return 1;	
+}
+
+struct quad * 
+pointerArithmetic(struct quad * q, struct astnode * a) 
+{
+	
+	// check if it is addition
+	if (a->u.binop.op != '+' && a->u.binop.op != '-'){
+		// do nothing
+		return NULL;
+	}else if (isPointer(a->u.binop.l) && !isPointer(a->u.binop.r)) { 		
+		 // check if left operand is a pointer and right is not
+		 int sizeA; 
+		 if (a->u.binop.l->nodetype == SYMBOL)
+		 	sizeA = size(a->u.binop.l->u.symbol->type);
+		 else 
+			 sizeA = a->u.binop.l->u.tmp.size;
+		 struct quad * adjust = adjustedArithmetic(a->u.binop.r,sizeA);
+		 q->right = adjust->target;
+		 q->target->u.tmp.p = 1;
+		 q->target->u.tmp.size = midSize(a->u.binop.l);
+		 return adjust;
+	}else if(isPointer(a->u.binop.r) && !isPointer(a->u.binop.l)) {		
+		// check if right operand is a pointer and left is not
+		int sizeA;
+		if(a->u.binop.r->nodetype == SYMBOL)
+			sizeA = size(a->u.binop.r->u.symbol->type);
+		else
+			sizeA = a->u.binop.r->u.tmp.size;
+
+		struct quad * adjust = adjustedArithmetic(a->u.binop.l,sizeA);
+		q->left = adjust->target;
+		q->target->u.tmp.p = 1;
+		q->target->u.tmp.size =midSize(a->u.binop.r);
+		return adjust;
+	}else if (isPointer(a->u.binop.r) && isPointer(a->u.binop.l)){
+		// pointer pointer arithmetic
+	}else{
+		// normal addition
+		return NULL;
+	}
+
+}
+

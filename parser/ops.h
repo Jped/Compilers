@@ -15,5 +15,6 @@ enum operations {
 	MOV = 260,
 	LOAD = 261,
 	STORE = 262,
-	LEA = 263	
+	LEA = 263,
+	ADDR = 264	
 };

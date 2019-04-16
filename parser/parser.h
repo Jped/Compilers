@@ -112,6 +112,8 @@ struct astnode_spec {
 
 struct astnode_tmp {
 		int num;
+		int p;
+		int size;
 };
 
 struct symbol{
@@ -228,13 +230,12 @@ struct astnode * addBreakStmt();
 struct astnode * addContStmt();
 void notInGlobalScope();
 struct basicBlock * emitQuads(struct astnode * f);
-void printQuad(struct astnode * head); 
-struct quad * linkQuads(struct quad * l, struct quad *r);
-struct quad * generateQuad(struct astnode * l, struct astnode * r, struct astnode * target, int op);
-struct astnode * augSymbol(struct astnode * symbol, int op);
-struct astnode * generateTarget(int nodetype);
-struct quad * fixPointer(struct quad * bad, struct quad * tQ);
-struct quad *  checkLnode(struct astnode * a, struct quad *tQ);
-void fixQuads(struct astnode * a);
-char * resolveQ(struct astnode * node, char * buf, int op);
 void yyerror(const char *s,...);
+struct astnode * resolveRvalues(struct quad * q, struct astnode * a, int p);
+struct astnode * resolveLvalues(struct quad* q, struct astnode * a); 
+int getType(struct astnode * symbol);
+int isPointer(struct astnode * a);
+int size(struct astnode *types);
+struct quad * adjustedArithmetic(struct astnode *a, int sizeType);
+struct quad * pointerArithmetic(struct quad * q, struct astnode * a);
+int midSize(struct astnode *a);
