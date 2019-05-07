@@ -722,7 +722,6 @@ printSymbol(struct symbol * last)
 {
 	if (last && last->name) {
 		struct astnode * a = last->type;
-		printf("\t");
 		printf("Member in Scope:%s \n\t NameSpace:%d, StorageClass:%s,  type_qualifier:%s, sign:%d,\n\t name:%s size:%d\n \t type:%s", scope2name(last->definedScope->scopeType),last->nameSpace, type2name(a->u.spec.storageClass), type2name(a->u.spec.type_qualifier), a->u.spec.sign, last->name, a->u.spec.size, type2name(a->u.spec.val));
 		while(a->u.spec.next){
 			a = a->u.spec.next;
@@ -993,6 +992,12 @@ resolveTarget(struct astnode * target, char * buf)
 	}else if(target->nodetype==SYMBOL){ 
 		sprintf(buf, "%s",target->u.symbol->name );
 		return buf;
+	}else if(target->nodetype == CONST_CHAR_OP){
+		sprintf(buf,"%s", target->u.ident.name);
+		return buf;
+	}else if(target->nodetype == CONST_STR_OP){
+		sprintf(buf, "%s", target->u.ident.name);
+	        return buf;	
 	}else{
 		yyerror("TARGET IS NOT A PROPER LVALUE");
 		return NULL;
@@ -1002,9 +1007,7 @@ resolveTarget(struct astnode * target, char * buf)
 char *
 resolveQ(struct astnode * node, char * buf, int op)
 {
-	// at this point there are two options
-	// either a tmp or a contstant
-	if(op != MOV && op !=LEA && op != LOAD && node->q && node->q->target->nodetype) {
+       	if(op != MOV && op !=LEA && op != LOAD && op!='<' && op!='>'  && op!=BREQ && node->q && node->q->target->nodetype) {
 		return resolveTarget(node->q->target, buf);
 	}else if(node->nodetype == CONST_INT_OP) {
 		sprintf(buf, "%d", node->u.num.val.i);
@@ -1012,25 +1015,26 @@ resolveQ(struct astnode * node, char * buf, int op)
 	}else if (node->nodetype == SYMBOL) { 
 		sprintf(buf, "%s", node->u.symbol->name);
 		return buf;
+	}else if (node->nodetype == BASIC){
+		sprintf(buf, "BB%d", node->u.b->num);
+		return buf;
 	}else{
 		return resolveTarget(node, buf);
 	}  
 }
-void 
-printQuad(struct astnode * head)
+struct quad *  
+printQuad(struct quad * j, int i)
 {
 	// need to reverse the order and start from the bottom.
 	// we do not need to re-traverse the tree, everything we need 
 	// is at the head node, just in reverse order. 
-	
-	
-	struct quad * q = head->q;
+	struct quad * q = j;
 	struct quad * prev = NULL;
 	struct quad * next = NULL;
 	char buf[10];
 	char buf1[10];
 	char buf2[10];
-	while(q->prevQuad && q->prevQuad->opcode!=-1){
+	while( i && q && q->prevQuad && q->prevQuad->opcode!=-1){
 		next = q->prevQuad;
 		q->prevQuad = prev;
 		prev  = q;
@@ -1039,13 +1043,12 @@ printQuad(struct astnode * head)
 		} 	
 		q = next;
 	}
-	if(q){
+	if(i && q){
 		q->prevQuad = prev;
 	}
-	
+	j = q;
 	// now that the Quads are the right side up we will just print it
 	while(q) {
-
 		switch(q->opcode) 
 			{
 
@@ -1094,9 +1097,46 @@ printQuad(struct astnode * head)
 				case LEA:
 					printf("%s =	LEA %s\n", resolveTarget(q->target, buf), resolveQ(q->left, buf1,q->opcode));
 				break;
+				case CMP:
+					printf("	CMP %s, %s\n", resolveQ(q->left,buf,q->opcode), resolveQ(q->right, buf1, q->opcode));
+				break;
+				case '<':
+					printf("	BRLT %s, %s\n", resolveQ(q->left,buf,q->opcode), resolveQ(q->right, buf1, q->opcode));
+				break;
+				case '>':
+					printf("	BRGT %s, %s\n", resolveQ(q->left,buf,q->opcode), resolveQ(q->right, buf1, q->opcode));
+				break;
+				case BR:
+					printf("	BR %s\n", resolveQ(q->left,buf,q->opcode));
+				break;
+				case BREQ:
+					printf(" 	BREQ %s %s\n", resolveQ(q->left,buf,q->opcode), resolveQ(q->right, buf1, q->opcode));
+				break;
+				case BRNEQ:
+					printf(" 	BRNEQ %s %s\n", resolveQ(q->left,buf,q->opcode), resolveQ(q->right, buf1, q->opcode));
+				break;
+				case PLUSPLUS:
+					printf(" INCR %s \n", resolveTarget(q->left,buf));
+				break;
+				case ARG:
+					printf(" ARG %s  %s\n", resolveQ(q->left, buf, 	q->opcode), resolveQ(q->right,buf1, q->opcode));
+				break;
+				case CALL:
+					printf("%s =  CALL  %s, %s \n", resolveTarget(q->target,buf), resolveTarget(q->left, buf1), resolveQ(q->right, buf2, q->opcode));
+				break;
+				case RET:
+			       		if (q->left)
+						printf("RETURN %s\n", resolveQ(q->left,buf, q->opcode));
+					else	
+						printf("RETURN\n");
+				break;
+				case CONQUAD:
+					printf("THIS should not be here\n");
+				break;
 			}
 		q =q->prevQuad;
 	} 
+	return j;
 }
 
 
@@ -1116,23 +1156,39 @@ linkQuads(struct quad  * l, struct quad * r)
 {
 	// puts |_r_| on the bottom
 	struct quad * tmpR;
-	if (l && l->opcode!=-1){ 
+	if (l && l->opcode !=-1){ 
+		// get to the end of l tack on r
 		tmpR = l;
-		while(tmpR && tmpR->opcode !=-1 && tmpR->prevQuad) { 
+		while(tmpR && tmpR->opcode >-1 && tmpR->prevQuad && tmpR->prevQuad->opcode >-1) { 
 			tmpR = tmpR->prevQuad;
-		} 
+		}
 		tmpR->prevQuad = r;
+		return l;
 	} else { 
-		l = r;
+		return r;
 	}
-	return l; 	
+}
+
+int 
+getTmpSize(struct astnode * left)
+{
+	if(left->nodetype == TMP){
+		return left->u.tmp.size;
+	}else if (left->nodetype == SYMBOL){
+		return size(left->u.symbol->type, 1);
+	}else if (left->nodetype == CONST_INT_OP){
+		return 4;
+	}else {
+		printf("no size");
+		return 0;
+	}
 }
 
 struct astnode *
 resolveLvalues(struct quad * q, struct astnode * a)
 {
 	struct quad * j  = malloc(sizeof(struct quad));
-	if(a->nodetype == SYMBOL || a->nodetype == CONST_INT_OP) {
+	if(a->nodetype == SYMBOL || a->nodetype == CONST_INT_OP || a->nodetype ==CONST_CHAR_OP) {
 		q->opcode = -1;
 		return a;	
 	}else if(a->nodetype == SIMPLE_BNOP) {
@@ -1147,6 +1203,7 @@ resolveLvalues(struct quad * q, struct astnode * a)
 		q->left = resolveLvalues(j , a->u.binop.l);
 		q->right= resolveLvalues(k, a->u.binop.r);
 		q->target= generateTarget();
+		q->target->u.tmp.size = getTmpSize(q->left);
 		struct quad * newQ  = pointerArithmetic(q,a);
 		q->prevQuad = linkQuads(j,k);
 		if (newQ) {
@@ -1168,6 +1225,7 @@ resolveLvalues(struct quad * q, struct astnode * a)
 			q->opcode = a->u.unop.op;
 			q->left   = resolveRvalues(j,a->u.unop.c,1);
 			q->target = generateTarget();
+			q->target->u.tmp.size = getTmpSize(q->left);
 			q->prevQuad = j;
 			return q->target;
 		} 
@@ -1175,6 +1233,7 @@ resolveLvalues(struct quad * q, struct astnode * a)
 	}
 	a->nodetype = TMP;
 	a->u.tmp.num = q->target->u.tmp.num;
+	a->u.tmp.size = q->target->u.tmp.size;
        	a->q = q;
 	return a;	
 
@@ -1185,23 +1244,27 @@ struct astnode *
 resolveRvalues(struct quad* q, struct astnode * a,int p) 
 {
 	struct quad * j  = malloc(sizeof(struct quad));
-	if(a->nodetype == SYMBOL || a->nodetype == CONST_INT_OP) {
-	 	if (p == 1 && a->nodetype == SYMBOL && getType(a) == ARRAYTYPE){
+	if(a->nodetype == SYMBOL || a->nodetype == CONST_INT_OP || a->nodetype == CONST_CHAR_OP || a->nodetype == CONST_STR_OP) {
+		if (p == 1 && a->nodetype == SYMBOL && getType(a) == ARRAYTYPE){
 			q->opcode = LEA;
 			q->left = a;
 			q->target = generateTarget();
+			q->target->u.tmp.size = 4;
 			q->target->u.tmp.p = p;
+			q->prevQuad = NULL;
 			struct astnode * b = malloc(sizeof(struct astnode));
 			b->nodetype = TMP;
 			b->u.tmp.num = q->target->u.tmp.num;
 			b->u.tmp.p = p;
+			b->u.tmp.size = 4;
 			b->q = q;	
 			return b;
 		}else{
+			q->prevQuad = NULL;
 			q->opcode = -1;
 			return a;
 		}
-	} else if(a->nodetype == SIMPLE_BNOP) {
+	} else if(a->nodetype == SIMPLE_BNOP && a->u.binop.op != LOGAND && a->u.binop.op !=LOGOR && a->u.binop.op != '<' && a->u.binop.op != '>' && a->u.binop.op != EQEQ && a->u.binop.op != LTEQ && a->u.binop.op !=GTEQ && a->u.binop.op !=NOTEQ) {
 		// need to check here for pointer arithmetic,
 		// I can do this by looking down either side and seeing what
 		// the type is ...
@@ -1210,39 +1273,140 @@ resolveRvalues(struct quad* q, struct astnode * a,int p)
 		q->left = resolveRvalues(j, a->u.binop.l,p);
 		q->right = resolveRvalues(k, a->u.binop.r,p);
 		q->target = generateTarget();	
+		q->target->u.tmp.size = getTmpSize(q->left);
 		struct quad * newQ  = pointerArithmetic(q,a);
 		q->prevQuad = linkQuads(j,k);
 		if (newQ) {
 			newQ->prevQuad = q->prevQuad;
 			q->prevQuad  = newQ;
 		} 
-	} else if(a->nodetype == SIMPLE_UNOP) {
+	}else if (a->nodetype == SIMPLE_BNOP && (a->u.binop.op == '<' ||  a->u.binop.op == '>' || a->u.binop.op == EQEQ || a->u.binop.op == LTEQ || a->u.binop.op == GTEQ || a->u.binop.op ==NOTEQ)) {
+		// Here we need to do the branch and all that cause we got a compare in here buddies.
+		struct basicBlock * b1 = createNewBlock(currentBlock);
+		struct basicBlock * b2 = createNewBlock(b1);
+		struct astnode  * b1A = malloc(sizeof(struct astnode));
+		struct astnode * b2A = malloc(sizeof(struct astnode));
+		b1A->u.b = b1;
+		b2A->u.b = b2;
+		b1A->nodetype =  BASIC;
+		b2A->nodetype = BASIC;
+		currentBlock = resolveComp(a,j,p);
+		if (a->u.binop.op == LOGOR){
+			currentBlock->q->left = b2A;
+			currentBlock->q->right->u.b = b1;
+		}else if(a->u.binop.op == LOGAND){ 
+			currentBlock->q->left->u.b = b2;
+			currentBlock->q->right = b1A;
+
+		}else{	
+			currentBlock->q->left = b1A;
+			currentBlock->q->right = b2A;
+		}
+		currentBlock->next = b1;
+		b1->next = b2;
+		b2->prev = b1;
+		b1->prev = currentBlock;
+		// need to populate b1 and b2...
+		
+		// b1 needs to have a quad for t1 and also
+		// needs to have a BR to pass b2..
+		struct astnode * t = generateTarget(); 
+		struct quad * qb1 = malloc(sizeof(struct quad));
+		struct quad * qb1r = malloc(sizeof(struct quad));
+		struct quad * n = malloc(sizeof(struct quad));
+		qb1->opcode = MOV;
+		qb1->target = t;
+		NUMS v;
+		v.i = 1;
+		qb1->prevQuad = NULL;
+		qb1->left = newNum(CONST_INT_OP,0,v);	
+		qb1->target->u.tmp.size = 4;
+		qb1r->prevQuad = qb1;
+		qb1r->opcode = BR;
+		n->opcode = MOV;
+		n->target = t;
+		n->prevQuad = NULL;
+		NUMS w;
+		w.i = 0;
+		n->left = newNum(CONST_INT_OP,0,w);	
+		b2->q = n;
+		// and each of them need to lead in to  currentBlock
+		currentBlock = createNewBlock(b2);
+		currentBlock->q = NULL;
+		struct astnode * currentBlockA=malloc(sizeof(struct astnode));
+		currentBlockA->u.b = currentBlock;
+		currentBlockA->nodetype = BASIC;
+		qb1r->left = currentBlockA;
+		b1->q =  qb1r;
+		b2->next = currentBlock;
+		currentBlock->prev = b2;
+		q->opcode = -1;
+		q->target = t;
+	}else if(a->nodetype == SIMPLE_UNOP) {
+		int jon = p;
 		int p = a->u.unop.op == '*' ? 1: 0;
-		struct astnode * left = resolveRvalues(j,a->u.unop.c,p);
-		// got to also verify that we do not do double load on multidim array
-		//TODO: figure out what to check the opcode, cause store does not have target
-		if(p  && (a->u.unop.c->nodetype==SYMBOL || a->u.unop.c->q->target->u.tmp.p!=1)){
+		struct astnode * left = NULL;
+		if (a->u.unop.op != SIZEOF)
+			left = resolveRvalues(j,a->u.unop.c,p);
+		// I think i did this here in order to get rid of a double load, but now  I dont get any load...
+		if(p  && (!jon || a->u.unop.c->nodetype==SYMBOL || a->u.unop.c->q->target->u.tmp.p!=1)){
 			q->opcode = LOAD;
 		}else if (a->u.unop.op == '&') {
 			q->opcode = ADDR;
+		}else if (a->u.unop.op == SIZEOF){
+			q->opcode = MOV;
+			left = mySizeOf(a->u.unop.c);
 		}else {
 			q->opcode = a->u.unop.op;
-		}
-		
-		if(p && a->u.unop.c->nodetype!=SYMBOL &&a->u.unop.c->q->target->nodetype == TMP && a->u.unop.c->q->target->u.tmp.p ==1){	
+		}	
+		// why is this here? 
+		if(p && jon &&a->u.unop.c->nodetype!=SYMBOL &&a->u.unop.c->q->target->nodetype == TMP && a->u.unop.c->q->target->u.tmp.p ==1){	
 			memcpy(q,j, sizeof(struct quad));
 		} else {
 	       		q->left = left;
 			q->target = generateTarget();
+			q->target->u.tmp.size = getTmpSize(left);
 			q->prevQuad = j;
 		}
 	} else if(a->nodetype == TERNARY_OP) {
 		// TODO.
+	}else if (a->nodetype == FNCALL_OP){
+		// loop through all the arguments and load them in...
+		struct listarg  * args= a->u.fn.r->start;
+		int count = 0;
+		struct quad * prev= NULL;
+		struct quad * b, * j, *p;
+		while (args){
+			b = malloc(sizeof(struct quad));
+			b->opcode = ARG;
+			NUMS v;
+			v.i = count;
+			b->left = newNum(CONST_INT_OP,0,v);
+			j = malloc(sizeof(struct quad));
+			b->right = resolveRvalues(j, args->ast, 0);
+			b->prevQuad = linkQuads(prev, j);
+			count+=1;
+			prev = b;
+			args= args->next;
+		}
+		// do the call here.
+	        q->opcode = CALL;
+		q->target = generateTarget();
+		NUMS v;
+		v.i = count;
+		q->right = newNum(CONST_INT_OP,0,v);
+		struct quad *n = malloc(sizeof(struct quad));
+		q->left = resolveRvalues(n,a->u.fn.l ,0);
+		q->prevQuad = linkQuads(b,n);
+		a->nodetype = TMP;
+		a->u.tmp.num = q->target->u.tmp.num;
+		a->u.tmp.p = q->target->u.tmp.p;
+		a->u.tmp.size = q->target->u.tmp.size;
+		a->q = q;
+		return a;
+			
 	}
-	a->nodetype = TMP;
-	a->u.tmp.num = q->target->u.tmp.num;
-	a->u.tmp.p = q->target->u.tmp.p;
-       	a->u.tmp.size = q->target->u.tmp.size;
+	a = q->target;
 	a->q = q;
 	return a;       
 }
@@ -1274,36 +1438,385 @@ buildQuads(struct astnode * topAst)
 				topQ->prevQuad = linkQuads(q,k);
 			}
 			topAst->q = topQ;
-		} 
+		} 	
 	}else if (topAst->nodetype == SIMPLE_BNOP) {
 		struct quad * k = malloc(sizeof(struct quad));
 		resolveRvalues(q, topAst->u.binop.r,0);
 		resolveRvalues(k, topAst->u.binop.l,0);
 		topAst->q = linkQuads(q,k);
 	}else if(topAst->nodetype == SIMPLE_UNOP) {
-		resolveRvalues(q, topAst->u.unop.c,0);
+		if (topAst->u.unop.op == SIZEOF){
+			q->opcode = MOV;
+			q->left = mySizeOf(topAst->u.unop.c);
+			q->prevQuad = NULL;
+		}else {
+			struct quad * j = malloc(sizeof(struct quad));
+			q->opcode = topAst->u.unop.op;
+			q->left = resolveRvalues(j, topAst->u.unop.c,0);
+			q->prevQuad = j;
+		}	
 		topAst->q = q;
-	}else if(topAst->nodetype == TERNARY_OP) {
+	}else if (topAst->nodetype == TERNARY_OP) {
+		// DO I NEED TO DO THIS? 
+	}else if (topAst->nodetype == IFNODE){
+		// need to tack on expression to current basic block.
+		// then need to create a true and after expression block
+		// if there is any for of else go to also create an else block
+
+		// first evaluate expression
+		currentBlock = resolveComp(topAst->u.ifNode.exp, q, 0);
+		struct basicBlock * old = currentBlock;
+		// we are currently in the true block...
+		currentBlock= createNewBlock(currentBlock);
+		struct astnode * tbA = malloc(sizeof(struct astnode));
+		tbA->nodetype = BASIC;
+		tbA->u.b = currentBlock;
+		old->q->target = NULL;
+		struct astnode * topAstIf = topAst->u.ifNode.statement;
+		if (topAstIf->nodetype == COMPOUND){
+			topAstIf= topAstIf->u.compound.statements;
+			while(topAstIf) { 
+				// this does not have a its relevant parameters
+				buildQuads(topAstIf);	
+				if (topAstIf->q) {
+					currentBlock->q = linkQuads(topAstIf->q, currentBlock->q);
+				}
+				currentBlock->q = topAstIf->q;
+				topAstIf = topAstIf->next;
+			}
+		}else{
+
+			buildQuads(topAstIf);
+			currentBlock->q = topAstIf->q;
+		}
+		// ADD A break (need to break to end of the if statment block) but make it incomplete.
+		struct quad * brQ = malloc(sizeof(struct quad));
+		brQ->opcode =	BR;
+	        brQ->prevQuad = currentBlock->q;
+		currentBlock->q = brQ;		
+		struct basicBlock * fBlock = NULL;
+		struct astnode * bbe = NULL;
+	       	if (topAst->u.ifNode.elseStatement){
+			struct astnode * topAstElse = topAst->u.ifNode.elseStatement; 
+			struct quad * breQ = malloc(sizeof(struct quad));
+			bbe = malloc(sizeof(struct astnode));
+			bbe->nodetype = BASIC;
+			breQ->opcode = BR;
+			breQ->left  = bbe;
+			currentBlock = createNewBlock(currentBlock);
+			fBlock = currentBlock;
+			if(topAstElse->nodetype == COMPOUND){
+				topAstElse = topAstElse->u.compound.statements;
+				while(topAstElse) { 
+				// this does not have a its relevant parameters
+					buildQuads(topAstElse);	
+					if (topAstElse->q) {
+						currentBlock->q = linkQuads(topAstElse->q, currentBlock->q);
+					}
+					currentBlock->q = topAstElse->q;
+					topAstElse = topAstElse->next;
+				}
+				breQ->prevQuad = currentBlock->q;
+				currentBlock->q = breQ;
+				currentBlock = createNewBlock(currentBlock);
+				
+			}else{
+				buildQuads(topAstElse);
+				breQ->prevQuad = topAstElse->q;
+				currentBlock->q = breQ;
+				if (topAstElse->q !=NULL){
+					currentBlock = createNewBlock(currentBlock);
+				}
+
+			}
+		}else{
+			currentBlock = createNewBlock(currentBlock);
+		}
+		if(bbe)
+			bbe->u.b = currentBlock;
+		struct astnode *bb = malloc(sizeof(struct astnode));
+		bb->nodetype=BASIC;
+		bb->u.b = currentBlock;
+		brQ->opcode = BR;
+		brQ->left = bb;
+		struct astnode * fbA = malloc(sizeof(struct astnode));
+		fbA->nodetype = BASIC;
+		fbA->u.b = fBlock ? fBlock : currentBlock;
+		if(topAst->u.ifNode.exp->u.binop.op== LOGOR){
+			old->q->left = fbA;	
+			old->q->right->u.b = tbA->u.b;
+		}else if(topAst->u.ifNode.exp->u.binop.op == LOGAND) {
+			old->q->left->u.b = fbA->u.b;
+			old->q->right= tbA;
+		}else{
+			old->q->left = tbA;
+			old->q->right = fbA;
+		}
+		topAst->q = NULL;
+		//if (fBlock)
+		//	fBlock->next  = currentBlock;	
+	}else if (topAst->nodetype == FORNODE){
+		// evaluate first part..
+		struct astnode * initialClause  = topAst->u.forNode.initial_clause;
+		buildQuads(initialClause);
+		initialClause->q->prevQuad = currentBlock->q;
+		currentBlock->q = initialClause->q;
+		// now need to build break to the last compare;
+		struct quad * l = malloc(sizeof(struct quad));
+		l->opcode = BR;
+		l->left = NULL;
+		l->target = NULL;
+		l->prevQuad = currentBlock->q;
+		currentBlock->q = l;
+		struct basicBlock * initial = currentBlock;
+		currentBlock = createNewBlock(currentBlock);
+		//evaluate body of the for loop
+		struct basicBlock * bodyBlock = currentBlock;
+		if(topAst->u.forNode.statement->nodetype == COMPOUND){
+				struct astnode * topAstFor = topAst->u.forNode.statement->u.compound.statements;
+				struct quad * q;
+				while(topAstFor) {
+				       	buildQuads(topAstFor);
+					// NOT ALL THINGS IN BUILDQUADS EDIT THE INPUT!!!! FIX THIS JESUS CHRIST! 
+					q= topAstFor->q;
+					if(q){
+						while(q->prevQuad && q->prevQuad->opcode !=-1){
+							q = q->prevQuad;
+						}
+						q->prevQuad = currentBlock->q;	
+						currentBlock->q = topAstFor->q;
+					}
+					topAstFor = topAstFor->next;
+				}
+		}else{
+			buildQuads(topAst->u.forNode.statement);
+			currentBlock->q = topAst->u.forNode.statement->q;
+		}
+		// now evaluate expression 2, this is also the continue point
+		currentBlock = createNewBlock(currentBlock);
+		struct basicBlock * contBlock  = currentBlock;
+		struct astnode * expression2 = topAst->u.forNode.expression2;
+		buildQuads(expression2);
+		currentBlock->q = expression2->q;
+		// now need to do expression 1, the compare	
+		currentBlock = createNewBlock(currentBlock);
+		//create an astnode for the BB
+		struct astnode * tbA = malloc(sizeof(struct astnode));
+		tbA->nodetype = BASIC;
+		tbA->u.b = bodyBlock;
+		initial->q->left = tbA;	
+		resolveComp(topAst->u.forNode.expression1,q,0);
+		// need to edit the break...
+		struct astnode * tbB=  malloc(sizeof(struct astnode));
+		tbB->nodetype = BASIC;
+		tbB->u.b= bodyBlock;
+		currentBlock->q->left = tbB;
+		struct basicBlock * cmpBlock = currentBlock;
+		// now back to other normal basic blocks
+		currentBlock = createNewBlock(currentBlock);
+		struct astnode * tbC = malloc(sizeof(struct astnode));
+		tbC->nodetype = BASIC;
+		tbC->u.b = currentBlock;
+		cmpBlock->q->right = tbC;
+		if(topAst->u.forNode.expression1->nodetype == LOGOR){
+			cmpBlock->q->left = tbC;
+			cmpBlock->q->right->u.b = tbA->u.b;
+		}else if(topAst->u.forNode.expression1->nodetype == LOGAND){
+			cmpBlock->q->left->u.b = currentBlock;
+			cmpBlock->q->right = tbA;
+
+		}	
+		addBreakContinue(initial, contBlock);
+		topAst->q = currentBlock->q;
+	}else if (topAst->nodetype == FNCALL_OP){
+		// loop through all the arguments and load them in...
+		struct listarg  * args= topAst->u.fn.r->start;
+		int count = 0;
+		struct quad * prev= NULL;
+		struct quad * q, * j, *p;
+		while (args){
+			q = malloc(sizeof(struct quad));
+			q->opcode = ARG;
+			NUMS v;
+			v.i = count;
+			q->left = newNum(CONST_INT_OP,0,v);
+			j = malloc(sizeof(struct quad));
+			q->right = resolveRvalues(j, args->ast, 0);
+			q->prevQuad = linkQuads(prev, j);
+			count+=1;
+			prev = q;
+			args= args->next;
+		}
+		// do the call here.
+		struct quad * l = malloc(sizeof(struct quad));
+	        l->opcode = CALL;
+		l->target = generateTarget(); 
+		NUMS v;
+		v.i = count;
+		l->right = newNum(CONST_INT_OP,0,v);
+		struct quad *n = malloc(sizeof(struct quad));
+		l->left = resolveRvalues(n,topAst->u.fn.l ,0);
+		l->prevQuad = linkQuads(q,n);
+		currentBlock->q = l;
+		topAst->q = l;
+	}else if (topAst->nodetype == SIMPLESTMT){
+		// check if it is a break or continue...
+		// because we are only using a for loop we 
+		// can have some other simplifications here.
+		int simpleType = topAst->u.simple.type;
+		if (simpleType == CONTINUE){
+			q->opcode  = CONQUAD;
+		}else if (simpleType == BREAK){
+			q->opcode = BREAKQUAD;
+		}else if (simpleType == RETURN){
+			struct quad * j  = malloc(sizeof(struct quad));
+			q->opcode = RET;
+			q->left = resolveRvalues(j, topAst->u.simple.exp,0);
+			q->prevQuad = j;
+		}
+		topAst->q = q;
 	} 
 }
  
 
-
-
 struct basicBlock * 
+resolveComp(struct astnode * a, struct quad * j, int p)
+{
+		// we want to move the intersection of 
+		// functionality of the compare and the resolve
+		// Expression into one function here..
+		// resolve left resolve right
+		if(a->u.binop.op == LOGAND){
+			// compare with zero...
+			struct quad * l = malloc(sizeof(struct quad));
+			l->opcode = CMP;
+			l->left = resolveRvalues(j, a->u.binop.l,p);
+			NUMS v;
+			v.i = 0;
+			l->right= newNum(CONST_INT_OP,0,v);
+			l->target = NULL;
+			l->prevQuad = j;
+			// BREQ..
+			struct quad * m = malloc(sizeof(struct quad));
+			m->opcode = BREQ;
+			m->prevQuad = l;
+			currentBlock->q  = m;
+			currentBlock = createNewBlock(currentBlock);
+			struct astnode * dright = malloc(sizeof(struct astnode));
+			dright->nodetype = BASIC;
+			dright->u.b = currentBlock;
+			m->right = dright;
+			struct quad * k = malloc(sizeof(struct quad));
+			struct quad * n = malloc(sizeof(struct quad));
+			struct astnode * dleft = malloc(sizeof(struct quad));
+			struct quad * o = malloc(sizeof(struct quad));
+			dleft->nodetype = BASIC;
+			k->opcode = CMP;
+			k->left = resolveRvalues(n, a->u.binop.r,p);
+			k->right =  newNum(CONST_INT_OP,0,v);
+			k->target = NULL;
+			k->prevQuad = n;
+			m->left = dleft;
+			o->opcode = BREQ;
+			o->prevQuad = k;
+			o->left = dleft;
+			currentBlock->q = o;
+		}else if(a->u.binop.op == LOGOR){
+			// compare with zero...
+			struct quad * l = malloc(sizeof(struct quad));
+			l->opcode = CMP;
+			l->left = resolveRvalues(j, a->u.binop.l,p);
+			NUMS v;
+			v.i = 0;
+			l->right= newNum(CONST_INT_OP,0,v);
+			l->target = NULL;
+			l->prevQuad = j;
+			// BREQ..
+			struct quad * m = malloc(sizeof(struct quad));
+			m->opcode = BREQ;
+			m->prevQuad = l;
+			currentBlock->q  = m;
+			currentBlock = createNewBlock(currentBlock);
+			struct astnode *dleft = malloc(sizeof(struct astnode));
+			dleft->nodetype = BASIC;
+			dleft->u.b = currentBlock;
+			m->left = dleft;
+			struct quad * k = malloc(sizeof(struct quad));
+			struct quad * n = malloc(sizeof(struct quad));
+			struct astnode * dright = malloc(sizeof(struct quad));
+			struct quad * o = malloc(sizeof(struct quad));
+			dright->nodetype = BASIC;
+			k->opcode = CMP;
+			k->left = resolveRvalues(n, a->u.binop.r,p);
+			k->right =  newNum(CONST_INT_OP,0,v);
+			k->target = NULL;
+			k->prevQuad = n;
+			m->right = dright;
+			o->opcode = BREQ;
+			o->prevQuad = k;
+			o->right = dright;
+			currentBlock->q = o;
+		
+		}else{
+			struct quad * k = malloc(sizeof(struct quad));
+			struct quad * l = malloc(sizeof(struct quad));
+			l->opcode = CMP;
+			l->left = resolveRvalues(j, a->u.binop.l,p);
+			l->right = resolveRvalues(k,a->u.binop.r,p);	
+			l->target = NULL;
+			l->prevQuad = linkQuads(k, j);
+			// break
+			// we have to break dependent on what the nodetype is 
+			int ty = a->u.binop.op;
+			if(ty == EQEQ){
+				ty = BREQ;
+			}else if(ty == NOTEQ){
+				ty = BRNEQ;
+			}
+			struct quad * m = malloc(sizeof(struct quad));
+			m->opcode = ty;
+			m->prevQuad = l;
+			m->left = NULL;
+			m->right = NULL;
+			// MAY NEED TO CHANGE THIS BACK>>>
+			currentBlock->q = linkQuads(m, currentBlock->q);
+		}
+		return currentBlock;
+}
+
+
+
+void 
 emitQuads(struct astnode * compoundAst) 
 {
 	// emit Quads expects a compound ast to be passed in.
 	struct astnode * topAst = compoundAst->u.compound.statements;
-
 	while(topAst) { 
 		// now with each compound ast we got to print
 		// out the corresponding quad
 		buildQuads(topAst);	
-		printQuad(topAst); 	
+		// not sure what is going on here....
+		if (topAst->q && topAst->nodetype != FNCALL_OP) {
+			currentBlock->q = linkQuads(topAst->q, currentBlock->q);
+		}
 		topAst = topAst->next;
-	}	
-
+	}
+	addReturn();
+	// now that we have all the blocks set up, lets reverse the order and then 
+	// re traverse and print out all the relevant info...	
+	struct basicBlock * topBlock = currentBlock;
+	struct basicBlock * temp = topBlock;
+	while(topBlock->prev){
+		temp = topBlock;
+		topBlock= topBlock->prev;
+		topBlock->next = temp;
+	}
+	while(topBlock){
+		printf("BB%d: \n", topBlock->num, topBlock->q);
+		if (topBlock->q)
+			topBlock->q = printQuad(topBlock->q, 1);
+		topBlock = topBlock->next;
+	}
 }
 
 
@@ -1314,6 +1827,17 @@ getType(struct astnode * symbol)
 	if (!symbol->u.symbol)
 		return -1;
 	struct astnode * types = symbol->u.symbol->type;
+	while(types->u.spec.next && types->u.spec.val == PNTRTYPE){
+		types = types->u.spec.next;
+
+	}
+	return types->u.spec.val;
+}
+int
+getTypeSym(struct symbol * symbol)
+{	
+	// same function as above but made for direct symbol
+	struct astnode * types = symbol->type;
 	while(types->u.spec.next && types->u.spec.val == PNTRTYPE){
 		types = types->u.spec.next;
 
@@ -1335,17 +1859,9 @@ isPointer(struct astnode *a)
 	return 0;
 }
 
-int 
-size(struct astnode * types)
+int typeSwitch(struct astnode * type)
 {
-	if(!types)
-		return 1;
-	struct astnode * type = types->u.spec.next;
-	if(!type){
-		type = types;
-		if (!type)
-			return 1;
-	}
+	// printf("size %d", type->u.spec.val);
 	switch(type->u.spec.val){
 		default: 
 			return 4;
@@ -1364,13 +1880,46 @@ size(struct astnode * types)
 		case DBLE:
 		     	return 8;
 		case PNTRTYPE:
-			return 8;
+			return 4;
 		case ARRAYTYPE:
-			return type->u.spec.size * size(type);	
+			return type->u.spec.size * size(type, 0);	
 	
 	}
 }
 
+int 
+size(struct astnode * types, int j)
+{
+	// set j to zero unless you want to automatically set type to types
+	if(!types)
+		return 1;
+	struct astnode * type = types->u.spec.next;
+	if(!type || j){
+		type = types;
+		if (!type)
+			return 1;
+	}
+	return typeSwitch(type);
+}
+
+struct astnode * 
+mySizeOf(struct astnode * a)
+{
+	struct astnode * s = malloc(sizeof(struct astnode));
+	if(a->nodetype == SYMBOL){
+		// just do normal size;
+		NUMS v;
+		v.i = size(a->u.symbol->type, 0);
+		s = newNum(CONST_INT_OP,0,v);
+	}else if (a->nodetype == TYPE) {
+		NUMS v;
+		v.i = typeSwitch(a);
+		s = newNum(CONST_INT_OP,0,v);	
+	}else{
+		yyerror("Invalid input to sizeof");
+	} 
+	return s;
+}
 struct quad * 
 adjustedArithmetic(struct astnode *a, int sizeType)
 {
@@ -1385,6 +1934,7 @@ adjustedArithmetic(struct astnode *a, int sizeType)
 	q->right = size;
 	q->prevQuad = NULL;
 	q->target = generateTarget();
+	q->target->u.tmp.size = getTmpSize(a);
 	return q;
 }
 
@@ -1393,7 +1943,7 @@ int midSize(struct astnode *a)
 	if (a->nodetype == TMP)
 		return a->u.tmp.size;
 	else if (a->nodetype == SYMBOL)
-		return size(a->u.symbol->type->u.spec.next);
+		return size(a->u.symbol->type->u.spec.next, 0);
 	return 1;	
 }
 
@@ -1409,7 +1959,7 @@ pointerArithmetic(struct quad * q, struct astnode * a)
 		 // check if left operand is a pointer and right is not
 		 int sizeA; 
 		 if (a->u.binop.l->nodetype == SYMBOL)
-		 	sizeA = size(a->u.binop.l->u.symbol->type);
+		 	sizeA = size(a->u.binop.l->u.symbol->type, 0);
 		 else 
 			 sizeA = a->u.binop.l->u.tmp.size;
 		 struct quad * adjust = adjustedArithmetic(a->u.binop.r,sizeA);
@@ -1421,7 +1971,7 @@ pointerArithmetic(struct quad * q, struct astnode * a)
 		// check if right operand is a pointer and left is not
 		int sizeA;
 		if(a->u.binop.r->nodetype == SYMBOL)
-			sizeA = size(a->u.binop.r->u.symbol->type);
+			sizeA = size(a->u.binop.r->u.symbol->type, 0);
 		else
 			sizeA = a->u.binop.r->u.tmp.size;
 
@@ -1445,7 +1995,7 @@ pointerArithmetic(struct quad * q, struct astnode * a)
 			q->left = adjust->target;
 			q->prevQuad = adjust;
 			NUMS v;
-			v.i = size(a->u.binop.l);
+			v.i = size(a->u.binop.l ,0);
 			q->right = newNum(CONST_INT_OP,0,v);
 			return adjust;
 		}
@@ -1454,5 +2004,569 @@ pointerArithmetic(struct quad * q, struct astnode * a)
 		return NULL;
 	}
 
+}
+
+
+struct basicBlock *  
+createNewBlock(struct basicBlock * currentBlock)
+{
+	struct basicBlock * b = malloc(sizeof(struct basicBlock));
+	if (currentBlock) {
+		if(currentBlock->q == NULL){
+			free(b);
+			return currentBlock;
+		}else{
+			currentBlock->next = b;
+			b->num = currentBlock->num + 1;
+			b->prev = currentBlock;	
+		}
+	}else{
+		b->num = 1;
+	}
+	b->q = NULL;
+	return b;
+}
+
+void 
+addReturn()
+{
+	if (currentBlock->q->opcode != RET){
+		struct quad * q = malloc(sizeof(struct quad));
+		q->opcode = RET;
+		q->left = NULL;
+		q->prevQuad = currentBlock->q;
+		currentBlock->q = q;
+	}
+}
+
+
+void
+addBreakContinue(struct basicBlock * i , struct basicBlock * c)
+{
+	// loop basicBlocks until you get to c
+	struct quad *q;
+	while(i !=c){
+		// loop through each quad.
+		q = i->q;
+		while(q){
+			if(q->opcode == CONQUAD || q->opcode == BREAKQUAD){
+				struct astnode * bb = malloc(sizeof(struct astnode));
+				bb->nodetype = BASIC;
+				bb->u.b = q->opcode == CONQUAD ? c : currentBlock;
+				q->opcode = BR;
+				q->left = bb;
+			}
+			q = q->prevQuad;
+		}
+		i = i->next;
+	}
+}
+
+void emitTargetCode()
+{
+	// first thing is to go through the symbol table and get all the global variables...
+		// I need to figure out how to do this only once for a file...
+	FILE *target_file = fopen("target.s", "w");
+	fprintf(target_file,".file \"%s\"\n", file_name);
+	buildPreamble(target_file);	
+	// now I need to convert quads into targetcode
+	convertQuads(target_file);
+	fclose(target_file);
+}
+void 
+buildPreamble(FILE * f)
+{
+	char * fnDecls[100][100];
+	char * strings[100][100];
+	int loc = 0;
+	int locS = 0;
+	int lco = 0;
+	struct scope * globalScope = currentScope;
+	//verify that it is a global scope...
+	if (globalScope->scopeType == GLOBALSCOPE){
+		// iterate through all the symbols in the global scope. 
+		struct symbol * syms = globalScope->last;
+		while (syms){
+			if (syms->type && syms->type->u.spec.val == FNTYPE){
+				sprintf(fnDecls[loc], ".globl %s\n",syms->name );
+				loc++;
+				sprintf(fnDecls[loc], ".type %s, @function\n", syms->name);
+				loc++;
+			}else if (syms->type && getTypeSym(syms)!=CHR){
+				// technically should havec a different align function, but for the types im using it is the same as size
+				fprintf(f,".comm  %s, %d, %d\n", syms->name, size(syms->type, 1), size(syms->type,1));	
+			}else if (syms->type && getTypeSym(syms)==CHR){
+				// First need to make sure that this was assigned something, if it was not just skip it.
+				// Need to save it to strings
+				char buff[1000];
+				int resp = getStringValue(syms,buff,lco);	
+				if (resp) { 
+					sprintf(strings[locS++],".LC%d:\n", lco);
+					sprintf(strings[locS++],"\t .string \"%s\"\n", buff);
+					sprintf(strings[locS++],"\t .data\n");
+					sprintf(strings[locS++],"\t .align 4\n");
+					sprintf(strings[locS++],"\t .type %s,@object\n", syms->name);
+					sprintf(strings[locS++],"\t .size %s, %d\n",syms->name,strlen(buff));
+					sprintf(strings[locS++],"%s:\n\t.long .LC%d\n", syms->name, locS);
+					locS++;
+					lco++
+				}
+				
+			}	
+			syms = syms->previous;
+		}
+		// get the rest of the strings here..
+		buildLocalStrings(strings,lco,locS);
+		// iterate through the fndecls: 
+		fputs(".rodata\n", f);
+		for (int i =0; i<=locS; i++){
+			fprintf(f,strings[i]);
+		}
+       		fputs(".text\n", f);
+		for(int i = 0; i<=loc; i++){
+			fprintf(f,fnDecls[i]);	
+		}	
+	}else{
+		yyerror("Dont support nested functions buddy");	
+	}		
+}
+
+void 
+convertQuads(FILE * f)
+{
+	// add the name of fn
+	fprintf(f, "%s:\n",currentScope->last->name);
+	// have to add the pushl/movl
+	fprintf(f,"\tpushl %%ebp\n");
+	fprintf(f,"\tmovl %%esp, %%ebp\n");	
+	// get the subl and set the offset for the corresponding elements
+	
+	// now go through the quads and do the actual conversion...
+	struct basicBlock * topBlock = currentBlock;
+	struct basicBlock * temp = topBlock;
+	while(topBlock->prev){
+		temp = topBlock;
+		topBlock= topBlock->prev;
+		topBlock->next = temp;
+	}
+	int offset = setOffset(currentScope, topBlock);
+	if (offset>0)
+		fprintf(f, "\tsubl $%d, %%ebp\n",offset);
+	while(topBlock){
+		if (topBlock->q){
+			fprintf(f,"BB%d:\n",topBlock->num);
+			conversion(topBlock->q, f);	
+		}
+		topBlock = topBlock->next;
+	}
+}
+
+void
+conversion(struct quad * q, FILE *f)
+{
+	// TODO: Fix up this function after changing everything to offsets...
+	char buff[100];
+	char buff1[100];
+	char buff2[100];
+	char buff3[100];
+	char t[2];
+	while(q) {
+		switch(q->opcode) 
+			{
+				case '*':
+					basicArithmetic(f, q);	
+				break;
+				case '/':
+					// mov the dividend ( q->left) to %eax
+					resolveType(q->left,t);
+					resolveSource(q->left, buff1, f);
+					fprintf(f, "\tmov%s %s, %%eax\n", t, buff1);
+					// mov the divisor  ( q->right) into %ecx
+					resolveSource(q->right, buff2,f);
+					fprintf(f, "\tmov%s %s, %%ecx\n", t, buff2);
+					// do div on %ecx
+					fprintf(f, "\tdiv %%ecx\n");
+					// move the result (%eax) into the target location
+					resolveDest(q->target, buff1);
+					fprintf(f, "\tmov%s %%eax, %s\n",t,buff1);
+				break;
+				case '%':
+					// mov the dividend ( q->left) to %eax
+					resolveType(q->left,t);
+					resolveSource(q->left, buff1, f);
+					fprintf(f, "\tmov%s %s, %%eax\n", t, buff1);
+					// mov the divisor  ( q->right) into %ecx
+					resolveSource(q->right, buff2,f);
+					fprintf(f, "\tmov%s %s, %%ecx\n", t, buff2);
+					// do div on %ecx
+					fprintf(f, "\tdiv %%ecx\n");
+					// move the result (%edx) into the target location
+					resolveDest(q->target, buff1);
+					fprintf(f, "\tmov%s %%edx, %s\n",t,buff1);
+				break;
+				case '+':
+					basicArithmetic(f,q);
+				break;
+				case '-':
+					basicArithmetic(f,q);
+				break;
+				case SHL:
+					basicArithmetic(f,q);
+				break;
+				case SHR:
+					basicArithmetic(f,q);
+				break;
+				case '&':
+					basicArithmetic(f,q);
+				break;
+				case '^':
+					basicArithmetic(f,q);
+				break;
+				case '|':
+					basicArithmetic(f,q);
+				break;
+				case LOAD:
+					// Both load and store and just modified movl commands.
+					resolveSource(q->left,buff1,f);
+					resolveDest(q->target,buff2);
+					resolveType(q->left,t);
+					fprintf(f,"\tmov%s (%s), %%edx\n", t, buff1);
+					fprintf(f,"\tmov%s %%edx, %s\n", t, buff2);
+				break;	
+				case STORE:
+					resolveSource(q->left,buff1,f);
+					resolveSource(q->right,buff2,f);
+					resolveType(q->left,t);
+					fprintf(f,"\tmov%s %s, %%edx\n", t, buff1);
+					fprintf(f,"\tmov%s %%edx, (%s)\n", t,buff2);
+				break;
+				case ADDR:
+					resolveSource(q->left, buff1,f);
+					resolveDest(q->target,buff2);
+					resolveType(q->left,t);
+					fprintf(f,"\tlea%s %s, %s\n", t,buff1,buff2);
+				break;
+				case LEA:
+					resolveSource(q->left, buff1,f);
+					resolveDest(q->target,buff2);
+					resolveType(q->left,t);
+					fprintf(f, "\tlea%s %s, %s\n",t, buff1,buff2);
+				break;
+				case CMP:
+					resolveSource(q->left,buff1,f);
+					resolveDest(q->target,buff2);
+					fprintf(f,"\tcmp %s, %s\n",buff1, buff2);
+				break;
+				case '<':
+					//BRLT
+					resolveQ(q->left, buff1, q->opcode);
+					resolveQ(q->right, buff2, q->opcode);
+					fprintf(f,"\tjl %s\n", buff1);
+					fprintf(f,"\tjmp %s\n", buff2);
+				break;
+				case '>':
+					//BRGT
+					resolveQ(q->left, buff1, q->opcode);
+					resolveQ(q->right, buff2, q->opcode);
+					fprintf(f,"\tjg %s\n", buff1);
+					fprintf(f,"\tjmp %s\n", buff2);
+				break;
+				case BR:
+					resolveQ(q->left, buff1, q->opcode);
+					fprintf(f,"\tjmp %s\n", buff1);
+				break;
+				case BREQ:
+					resolveQ(q->left, buff1, q->opcode);
+					resolveQ(q->right, buff2, q->opcode);
+					fprintf(f,"\tje %s\n", buff1);
+					fprintf(f,"\tjmp %s\n", buff2);
+				break;
+				case BRNEQ:
+					resolveQ(q->left, buff1, q->opcode);
+					resolveQ(q->right, buff2, q->opcode);
+					fprintf(f, "\tjne %s\n", buff1);
+					fprintf(f, "\tjmp %s\n",buff2);
+				break;
+				case PLUSPLUS:
+					resolveDest(q->left,buff1);
+					fprintf(f,"\tinc %s\n", buff1);
+				break;
+				case MINUSMINUS:
+					resolveDest(q->left,buff1);
+					fprintf(f,"\tdec %s\n", buff1);
+				break;
+				case ARG:
+					resolveType(q->right,t);
+					resolveSource(q->right,buff1,f);
+					fprintf(f,"\tpush%s %s\n", t, buff1);
+				break;
+				case CALL:
+					resolveTarget(q->left,buff1);
+					fprintf(f,"\tcall %s\n",buff1);	
+					// have to add back to the esp here
+					fprintf(f,"\taddl $%d, %%esp\n",q->right->u.num.val.i*4);
+				break;
+				case '=':
+					resolveSource(q->left,buff1,f);
+					resolveDest(q->target,buff2);
+					resolveType(q->left,t);
+					fprintf(f,"\tmov%s %s,%s\n",t,buff1,buff2);					
+				break;
+				case MOV:
+					resolveSource(q->left,buff1,f);
+					resolveDest(q->target,buff2);
+					resolveType(q->left,t);
+					fprintf(f,"\tmov%s %s,%s\n",t,buff1,buff2);
+				break;	
+				case RET:
+					if (q->left) {
+						resolveType(q->left, buff);
+ 						resolveSource(q->left, buff1, f); 
+						fprintf(f,"\tmov%s %s, %%eax\n",buff, buff1);
+					}
+					fprintf(f,"\tret\n");		
+					fprintf(f,"\tleave\n");
+					fprintf(f,"\t.size %s,.-%s\n", currentScope->last->name, currentScope->last->name);
+				break;
+				case CONQUAD:
+					printf("THIS should not be here\n");
+				break;
+
+
+			}
+		q = q->prevQuad;
+	}
+}
+
+void 
+resolveType(struct astnode * a, char * buff)
+{
+	int s = 0;
+	if (a->nodetype == TMP)
+		s = a->u.tmp.size;
+	else if (a->nodetype == SYMBOL)
+		s = size(a->u.symbol->type, 1);
+	switch(s){
+		default:
+			sprintf(buff, "l");
+		break;
+		case 1:
+			sprintf(buff, "b");
+		break;
+		case 2:
+			sprintf(buff, "w");
+		break;
+		case 4:
+			sprintf(buff, "l");
+		break;
+		case 8:
+			sprintf(buff, "q");
+		break;
+	}
+	
+}
+
+void
+resolveLocal(struct astnode *a, char * buff)
+{
+	int offset = 0;
+	if (a->nodetype == TMP)
+		offset = a->u.tmp.offset;
+	else if (a->nodetype == SYMBOL)
+		offset = a->u.symbol->offset;
+	sprintf(buff, "-%d(%%esp)", offset);
+}
+
+void
+resolveSource(struct astnode * a, char * buff, FILE *f)
+{
+	// In general we have the following possibilities: 
+	// 		1. CONST (Only source)
+	// 		2. Global Var
+	// 		3. Local Var (Can be TMP or SYMBOL)
+	//		4. ARRAY 
+	if (a->nodetype == CONST_INT_OP){
+		sprintf(buff, "$%d", a->u.num.val.i);
+	}else if(a->nodetype == CONST_CHAR_OP){
+		sprintf(buff,"$%d", a->u.ident.name);
+	}else if(a->nodetype == SYMBOL && a->u.symbol->definedScope->scopeType == GLOBALSCOPE) {
+		//GLOBAL VAR
+		char o[2];
+		sprintf(buff, "%s", a->u.symbol->name);
+		resolveType(a,o);
+		fprintf(f, "\tmov%s %s, %%edx\n",o,buff);
+		sprintf(buff, "%%edx");
+	}else if (a->nodetype == SYMBOL || a->nodetype == TMP){
+		//LOCAL VAR
+		// If we are a source and in a two operation op code 
+		// we may face the issue of too many mem references
+		// so preemtively we will just move it into edx
+		resolveLocal(a,buff);
+		char o[2];
+		resolveType(a,o);
+		fprintf(f, "\tmov%s %s, %%edx\n",o,buff);
+		sprintf(buff, "%%edx");
+	}
+}
+
+void
+resolveDest(struct astnode * a, char * buff)
+{
+	if(a->nodetype == SYMBOL && a->u.symbol->definedScope->scopeType == GLOBALSCOPE) {
+		//GLOBAL VAR
+		sprintf(buff, "%s", a->u.symbol->name);
+	}else if (a->nodetype == SYMBOL || a->nodetype == TMP){
+		//LOCAL VAR
+		resolveLocal(a,buff);
+	}
+
+
+}
+
+void
+basicArithmetic(FILE *f, struct quad * q)
+{
+	char buff1[100];
+	char buff2[100];
+	char o[10];
+	char t[2];
+	char j[2];
+	resolveOp(q->opcode, o);
+	resolveType(q->target,j);
+	resolveType(q->left, t);
+	resolveSource(q->left, buff1, f);
+	resolveDest(q->target, buff2);
+	// Two steps:	1. Mov into the correct place
+	// 		2. Do the actual arithmetic operation
+	fprintf(f, "\tmov%s %s, %s\n",j, buff1, buff2);
+	resolveSource(q->right, buff1, f);
+	fprintf(f,  "\t%s%s %s, %s\n",o,t,buff1,buff2);
+}
+
+void 
+resolveOp(int opcode, char * op)
+{
+	switch(opcode){
+		default:
+			printf("default\n");
+
+		break;
+		case '*': 
+			sprintf(op, "mul");
+		break;
+		case '+':
+			sprintf(op, "add");
+		break;
+		case '-':
+			sprintf(op, "sub");
+		break;
+		case SHL:
+			sprintf(op, "shl");	
+		break;
+		case SHR:
+			sprintf(op,"shr");
+		break;
+		case '&':
+			sprintf(op, "and");
+		break;
+		case '^':
+			sprintf(op, "xor");
+		break;
+		case '|':
+			sprintf(op, "or");
+		break;
+		
+	}
+}
+
+int 
+setOffset(struct scope * s, struct basicBlock * top)
+{
+	// go through the local variables first
+		// where is this symbol table? 
+	while(s->scopeType!=FUNCTIONSCOPE){ 
+		s = s->next;
+	} 	
+	struct symbol * syms = s->last;
+	int offset = 0;
+	while(syms){
+		if(syms->type->u.spec.storageClass!= STATIC){
+			offset += size(syms->type ,1);
+			//printf("var:%s symbol:%p offset %d\n",syms->name,syms, offset);
+			syms->offset = offset;
+		}		
+		syms = syms->previous;
+	} 	
+	// then go through all the quads and add for the tmp variables..	
+	while(top){
+		if (top->q){
+			struct quad * q= top->q;
+			while(q) { 
+				if (q->target && q->target->nodetype == TMP){
+					offset+=q->target->u.tmp.size;
+					q->target->u.tmp.offset = offset;
+				
+				}
+				q = q->prevQuad;
+			}
+		}
+		top = top->next;
+	}	
+	//printf("offset %d\n", offset);
+	return offset;
+
+}
+int
+getStringValue(struct symbol * symb, char * buff, int lnum)
+{
+	int resp = 0;
+	struct basicBlock * top = currentBlock;
+	struct basicBlock * temp = top;
+	while(top->prev){
+		temp = top;
+		top= top->prev;
+		top->next = temp;
+	}
+	while(top){
+		if (top->q){
+			struct quad * q= top->q;
+			while(q) { 
+				if (q->target && q->target->nodetype == SYMBOL && q->target->u.symbol == symb){
+					sprintf(buff, q->left->u.ident.name);
+					q->left->u.ident.num = lnum;
+					resp = 1;
+					goto end;
+				}
+				q = q->prevQuad;
+			}
+		}
+		top = top->next;
+	}
+	end:
+		return resp;
+}
+
+void
+buildLocalStrings(char * strings,int lco, int locS)
+{
+	struct basicBlock * top = currentBlock;
+	struct basicBlock * temp = top;
+	while(top->prev){
+		temp = top;
+		top= top->prev;
+		top->next = temp;
+	}
+	while(top){
+		if (top->q){
+			struct quad * q= top->q;
+			while(q) { 
+				if (q->left && q->left->nodetype == CONST_STR_OP){
+					printf("found local const str_op)
+				}
+				q = q->prevQuad;
+			}
+		}
+		top = top->next;
+	}
 }
 

@@ -12,5 +12,6 @@ enum astTypes {
 	LABELNODE=24,
 	FUNCTION = 25,
 	NAMEDLABEL = 26,
-	TMP=27
+	TMP=27,
+	BASIC = 28
 };

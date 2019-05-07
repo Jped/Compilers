@@ -21,6 +21,7 @@
 char file_name[300];
 int line;
 struct scope * currentScope;
+struct basicBlock * currentBlock;
 int withinLoop;
 int tmpCounter;
 %}
@@ -116,7 +117,7 @@ int tmpCounter;
 %token <string_literal> FILEN 
 
 
-%type <a> exp exp_stm unary_expression primary_expression numbers characters constant parenthesized_expression cast_expression postfix_expression binary_expression ternary_expression assignment_expression comma_expression type_name declaration_spec pointer type_qualifier_list union_type_definition structure_type_definition statement decl_or_stmt compound_stmt if_else_statement if_statement conditional_statement null_statement labeled_statement label goto_statement switch_statement for_statement do_statement while_statement case_label named_label default_label initial_clause exp_opt break_statement continue_statement return_statement iterative_statement function_body
+%type <a> exp exp_stm unary_expression primary_expression numbers characters constant parenthesized_expression cast_expression postfix_expression binary_expression ternary_expression assignment_expression comma_expression type_name declaration_spec pointer type_qualifier_list union_type_definition structure_type_definition statement decl_or_stmt compound_stmt if_else_statement if_statement conditional_statement null_statement labeled_statement label goto_statement switch_statement for_statement do_statement while_statement case_label named_label default_label initial_clause exp_opt break_statement continue_statement return_statement iterative_statement function_body sizeof_expression
 %type <super> declaration_specifier initialized_declarator_list component_declaration component_declarator_list 
 %type <small> simple_declarator initialized_declarator direct_declarator array_declarator declarator function_declarator pointer_declarator
 %type <l> expression_list
@@ -184,32 +185,40 @@ decl:   	declaration_specifier initialized_declarator_list ';' 	{
 										printVariable(currentScope,line, file_name);
 										
 									}
-		| declaration_specifier function_declarator function_body {
-										// assign function scope to function astnode...
-										struct astnode * fnNode = $2->types->t;
-										 fnNode->u.spec.functionScope = currentScope;		
-										// why am I destroying the current scope? 
-										// We are not destroying it here, we are just pointing it
-										// to the previous scope because we have no exited it
-										currentScope->done = 1;
-										currentScope = destroySymbolTable(currentScope);
-										struct superSpec * super = $1;
-										struct init * i = malloc(sizeof(struct init));
-										i->value = strdup($2->value);
-										i->next = NULL;
-										super->i = i;
-										super->initialType = $2->types;
-										enterNewVariable(currentScope,OTHERSPACE,super); 
-										printVariable(currentScope,line, file_name);
-										struct astnode * fnAst = createCompoundAst(FUNCTION,$3);
-										printast(fnAst,0);
-										emitQuads(fnAst);
+		| declaration_specifier[fnSpec] function_declarator[fnDecl] {
+
+									// assign function scope to function astnode...
+									struct astnode * fnNode = $fnDecl->types->t;
+									struct superSpec * super = $fnSpec;
+									struct init * i = malloc(sizeof(struct init));
+									i->value = strdup($fnDecl->value);
+									i->next = NULL;
+									super->i = i;
+									super->initialType = $fnDecl->types;
+									enterNewVariable(currentScope,OTHERSPACE,super); 
+									printVariable(currentScope,line, file_name);
+									currentBlock = createNewBlock(currentBlock);
+									} function_body[fnBody] {																				
+										 // why am I destroying the current scope? 
+										 // We are not destroying it here, we are just pointing it
+										 // to the previous scope because we have no exited it
+										 currentScope->done = 1;
+										 struct scope * fnScope  = currentScope; 
+										 currentScope = destroySymbolTable(currentScope);
+										 // got to get fnNode
+										 struct astnode * fnNode = currentScope->last; 	
+										 fnNode->u.spec.functionScope = fnScope;		
+										 struct astnode * fnAst = createCompoundAst(FUNCTION,$fnBody);
+										 printast(fnAst,0);
+										 emitQuads(fnAst);
+										 emitTargetCode();
 									}	
 		| structure_type_definition ';' 
 		| union_type_definition ';'
 		;
 
-function_body: '{'{currentScope = newSymbolTable(currentScope, FUNCTIONSCOPE);} decl_or_stmt[decl] '}' { $$ = $decl;}
+function_body: '{'{currentScope = newSymbolTable(currentScope, FUNCTIONSCOPE);} decl_or_stmt[decl] '}' {
+													$$ = $decl;}
 													
 	     	;
 
@@ -628,15 +637,16 @@ primary_expression:	 IDENT {
 					struct symbol * ident = findSymbol(currentScope, $1, OTHERSPACE);			
 					struct astnode * symb = malloc(sizeof(struct astnode));
 					if(ident){
-						struct symbol * cident = malloc(sizeof(struct symbol));
-						memcpy(cident,ident,sizeof(struct symbol));
-						symb->u.symbol = cident;
-						symb->nodetype = SYMBOL;
-							
+						//  TODO: Figure out why  I memcpy this, will something break now that I dont?  
+						//struct symbol * cident = malloc(sizeof(struct symbol));
+						//memcpy(cident,ident,sizeof(struct symbol));
+						symb->u.symbol = ident;
+						symb->nodetype = SYMBOL;	
+						$$=symb;	
 					}else{
+						$$ =  newIdent(CONST_CHAR_OP,$1);
 						yyerror("%s is not in the symbol table.",$1);
 					}
-					$$=symb;	
 				}
 		  	| constant {$$=$1;}
 			| parenthesized_expression {$$=$1;}
@@ -731,6 +741,7 @@ binary_expression:	cast_expression {$$ = $1;}
 			;
 
 unary_expression:	postfix_expression {$$ = $1;}
+			| sizeof_expression {$$ = $1;}
 			| '-' cast_expression {$$=newUnop(SIMPLE_UNOP,'-',$2);} 
 			| '+' cast_expression {$$=newUnop(SIMPLE_UNOP,'+',$2);} 
 			| '!' cast_expression {$$=newUnop(SIMPLE_UNOP,'!',$2);}
@@ -986,6 +997,10 @@ return_statement:	RETURN exp ';' {
 
 null_statement: ';'  {struct astnode * empty = malloc(sizeof(struct astnode)); $$ = empty;} 
 
+
+sizeof_expression: 	SIZEOF '(' type_name ')' {$$ = newUnop(SIMPLE_UNOP, SIZEOF, $3);}
+		 	| SIZEOF unary_expression { $$ = newUnop(SIMPLE_UNOP,SIZEOF, $2);}
+			;
 
 %%
 
