@@ -4,6 +4,7 @@ extern int yylineno;
 extern char file_name[300];
 extern int line;
 extern struct scope * currentScope;
+extern struct basicBlock * currentBlock;
 extern int withinLoop;
 extern int tmpCounter;
 
@@ -41,6 +42,7 @@ struct astnode_unop {
 
 struct astnode_ident {
 		char* name;
+		int num;
 };
 
 struct astnode_if {
@@ -49,12 +51,6 @@ struct astnode_if {
 	struct astnode * elseStatement;
 };
 
-struct adnode_for {
-	struct astnode * initial_clause;
-	struct astnode * expression1;
-	struct astnode * expression2;
-	struct astnode * statement;
-};
 
 typedef union{
 	int i;
@@ -113,6 +109,7 @@ struct astnode_spec {
 struct astnode_tmp {
 		int num;
 		int p;
+		int offset;
 		int size;
 };
 
@@ -123,7 +120,7 @@ struct symbol{
 	char* name;
 	struct symbol * previous;
 	struct scope * definedScope;
-
+	int offset;
 };
 
 struct quad { 
@@ -136,11 +133,10 @@ struct quad {
 };
 
 struct basicBlock { 
-	struct quad * firstQuad;
-	struct quad * lastQuad; 
+	struct quad * q;
 	int num;
-	struct basicBlock * nextBlock; 
-
+	struct basicBlock * next;
+        struct basicBlock * prev;	
 };
 
 struct astnode {
@@ -161,6 +157,7 @@ struct astnode {
 		struct astnode_label label;
 		struct astnode_tmp tmp;
 		struct symbol * symbol;
+		struct basicBlock * b;
 	} u;
 	struct quad * q; 
 	struct astnode * next;	
@@ -229,13 +226,35 @@ struct astnode * addCaseStmt(int type, int val);
 struct astnode * addBreakStmt();
 struct astnode * addContStmt();
 void notInGlobalScope();
-struct basicBlock * emitQuads(struct astnode * f);
+void emitQuads(struct astnode * a);
 void yyerror(const char *s,...);
 struct astnode * resolveRvalues(struct quad * q, struct astnode * a, int p);
 struct astnode * resolveLvalues(struct quad* q, struct astnode * a); 
 int getType(struct astnode * symbol);
 int isPointer(struct astnode * a);
-int size(struct astnode *types);
+int size(struct astnode *types,int j);
 struct quad * adjustedArithmetic(struct astnode *a, int sizeType);
 struct quad * pointerArithmetic(struct quad * q, struct astnode * a);
 int midSize(struct astnode *a);
+struct basicBlock *  createNewBlock(struct basicBlock * c);
+struct quad * printQuad(struct quad * q, int i);
+void resolveExp(struct quad * q, struct astnode * a);
+struct basicBlock * resolveComp(struct astnode * a, struct quad * j, int p);
+void addReturn();
+void addBreakContinue(struct basicBlock * i, struct basicBlock * c);
+void emitTargetCode();
+void buildPreamble(FILE *f);
+void convertQuads(FILE *f);
+void conversion(struct quad *q, FILE *f);
+void resolveType(struct astnode * a,char * buff);
+void resolveAddressing(struct astnode * a, int p, char * buff);
+void basicArithmetic(FILE *f, struct quad *q);
+void resolveSource(struct astnode * a, char * buff, FILE * f);
+void resolveDest(struct astnode * a, char * buff, FILE *f);
+void resolveOp(int opcode,  char *op);
+int  setOffset(struct scope * fnScope, struct basicBlock * b);
+int  getTmpSize(struct astnode *a);
+int  getStringValue(struct symbol * sym, char * buff, int num);
+struct astnode * mySizeOf(struct astnode * a);
+int  typeSwitch(struct astnode * type);
+

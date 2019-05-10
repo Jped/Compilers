@@ -982,8 +982,7 @@ resolveTarget(struct astnode * target, char * buf)
 	// need to verify if thing can be a left value.
 	// at this point just chech if it is a tmp
 	// if it is not raise and error, later we can have more
-	// complete type checking.
-	
+	// complete type checking.	
 	if (target ->nodetype == TMP) {
 		sprintf(buf, "%%T%d", target->u.tmp.num);
 		return buf;
@@ -1007,7 +1006,7 @@ resolveTarget(struct astnode * target, char * buf)
 char *
 resolveQ(struct astnode * node, char * buf, int op)
 {
-       	if(op != MOV && op !=LEA && op != LOAD && op!='<' && op!='>'  && op!=BREQ && node->q && node->q->target->nodetype) {
+	if(op != MOV && op !=LEA && op != LOAD && op!='<' && op!='>'  && op!=BREQ && node->q && node->q->target->nodetype) {
 		return resolveTarget(node->q->target, buf);
 	}else if(node->nodetype == CONST_INT_OP) {
 		sprintf(buf, "%d", node->u.num.val.i);
@@ -1031,9 +1030,9 @@ printQuad(struct quad * j, int i)
 	struct quad * q = j;
 	struct quad * prev = NULL;
 	struct quad * next = NULL;
-	char buf[10];
-	char buf1[10];
-	char buf2[10];
+	char buf[100];
+	char buf1[100];
+	char buf2[100];
 	while( i && q && q->prevQuad && q->prevQuad->opcode!=-1){
 		next = q->prevQuad;
 		q->prevQuad = prev;
@@ -1376,6 +1375,9 @@ resolveRvalues(struct quad* q, struct astnode * a,int p)
 		int count = 0;
 		struct quad * prev= NULL;
 		struct quad * b, * j, *p;
+		//need to do this in the reverse order..
+		while (args->next)
+			args =  args->next;
 		while (args){
 			b = malloc(sizeof(struct quad));
 			b->opcode = ARG;
@@ -1387,7 +1389,7 @@ resolveRvalues(struct quad* q, struct astnode * a,int p)
 			b->prevQuad = linkQuads(prev, j);
 			count+=1;
 			prev = b;
-			args= args->next;
+			args= args->previous;
 		}
 		// do the call here.
 	        q->opcode = CALL;
@@ -1462,7 +1464,7 @@ buildQuads(struct astnode * topAst)
 		// need to tack on expression to current basic block.
 		// then need to create a true and after expression block
 		// if there is any for of else go to also create an else block
-
+		
 		// first evaluate expression
 		currentBlock = resolveComp(topAst->u.ifNode.exp, q, 0);
 		struct basicBlock * old = currentBlock;
@@ -1475,15 +1477,21 @@ buildQuads(struct astnode * topAst)
 		struct astnode * topAstIf = topAst->u.ifNode.statement;
 		if (topAstIf->nodetype == COMPOUND){
 			topAstIf= topAstIf->u.compound.statements;
+			struct quad * jp = malloc(sizeof(struct quad));
 			while(topAstIf) { 
 				// this does not have a its relevant parameters
 				buildQuads(topAstIf);	
+				//printf("we have something in here\n");
 				if (topAstIf->q) {
-					currentBlock->q = linkQuads(topAstIf->q, currentBlock->q);
+			        //		printf("topastif ->q %p\n",topAstIf->q); 
+					jp = linkQuads(topAstIf->q, jp);	
+					//currentBlock->q = linkQuads(topAstIf->q, currentBlock->q);
 				}
-				currentBlock->q = topAstIf->q;
 				topAstIf = topAstIf->next;
 			}
+
+			currentBlock->q = jp;
+		
 		}else{
 
 			buildQuads(topAstIf);
@@ -1507,15 +1515,17 @@ buildQuads(struct astnode * topAst)
 			fBlock = currentBlock;
 			if(topAstElse->nodetype == COMPOUND){
 				topAstElse = topAstElse->u.compound.statements;
+				struct quad *  pj = malloc(sizeof(struct quad));
 				while(topAstElse) { 
-				// this does not have a its relevant parameters
+					// this does not have a its relevant parameters
 					buildQuads(topAstElse);	
 					if (topAstElse->q) {
-						currentBlock->q = linkQuads(topAstElse->q, currentBlock->q);
+						//currentBlock->q = linkQuads(topAstElse->q, currentBlock->q);
+						pj = linkQuads(topAstElse->q, pj);
 					}
-					currentBlock->q = topAstElse->q;
 					topAstElse = topAstElse->next;
 				}
+				currentBlock->q = pj;
 				breQ->prevQuad = currentBlock->q;
 				currentBlock->q = breQ;
 				currentBlock = createNewBlock(currentBlock);
@@ -1523,8 +1533,8 @@ buildQuads(struct astnode * topAst)
 			}else{
 				buildQuads(topAstElse);
 				breQ->prevQuad = topAstElse->q;
-				currentBlock->q = breQ;
-				if (topAstElse->q !=NULL){
+				//currentBlock->q = breQ;
+				if (topAstElse->q!=NULL){
 					currentBlock = createNewBlock(currentBlock);
 				}
 
@@ -1537,7 +1547,6 @@ buildQuads(struct astnode * topAst)
 		struct astnode *bb = malloc(sizeof(struct astnode));
 		bb->nodetype=BASIC;
 		bb->u.b = currentBlock;
-		brQ->opcode = BR;
 		brQ->left = bb;
 		struct astnode * fbA = malloc(sizeof(struct astnode));
 		fbA->nodetype = BASIC;
@@ -1576,17 +1585,17 @@ buildQuads(struct astnode * topAst)
 				struct astnode * topAstFor = topAst->u.forNode.statement->u.compound.statements;
 				struct quad * q;
 				while(topAstFor) {
-				       	buildQuads(topAstFor);
-					// NOT ALL THINGS IN BUILDQUADS EDIT THE INPUT!!!! FIX THIS JESUS CHRIST! 
-					q= topAstFor->q;
+					buildQuads(topAstFor);
+					q= topAstFor->q;	
 					if(q){
 						while(q->prevQuad && q->prevQuad->opcode !=-1){
 							q = q->prevQuad;
 						}
-						q->prevQuad = currentBlock->q;	
+						//q->prevQuad = currentBlock->q;	
 						currentBlock->q = topAstFor->q;
 					}
 					topAstFor = topAstFor->next;
+			
 				}
 		}else{
 			buildQuads(topAst->u.forNode.statement);
@@ -1603,7 +1612,7 @@ buildQuads(struct astnode * topAst)
 		//create an astnode for the BB
 		struct astnode * tbA = malloc(sizeof(struct astnode));
 		tbA->nodetype = BASIC;
-		tbA->u.b = bodyBlock;
+		tbA->u.b = currentBlock;
 		initial->q->left = tbA;	
 		resolveComp(topAst->u.forNode.expression1,q,0);
 		// need to edit the break...
@@ -1624,16 +1633,18 @@ buildQuads(struct astnode * topAst)
 		}else if(topAst->u.forNode.expression1->nodetype == LOGAND){
 			cmpBlock->q->left->u.b = currentBlock;
 			cmpBlock->q->right = tbA;
-
 		}	
 		addBreakContinue(initial, contBlock);
-		topAst->q = currentBlock->q;
+		if (currentBlock->q)
+			topAst->q = currentBlock->q;
 	}else if (topAst->nodetype == FNCALL_OP){
 		// loop through all the arguments and load them in...
 		struct listarg  * args= topAst->u.fn.r->start;
 		int count = 0;
 		struct quad * prev= NULL;
 		struct quad * q, * j, *p;
+		while(args->next)
+			args = args->next;
 		while (args){
 			q = malloc(sizeof(struct quad));
 			q->opcode = ARG;
@@ -1645,7 +1656,7 @@ buildQuads(struct astnode * topAst)
 			q->prevQuad = linkQuads(prev, j);
 			count+=1;
 			prev = q;
-			args= args->next;
+			args= args->previous;
 		}
 		// do the call here.
 		struct quad * l = malloc(sizeof(struct quad));
@@ -1657,6 +1668,7 @@ buildQuads(struct astnode * topAst)
 		struct quad *n = malloc(sizeof(struct quad));
 		l->left = resolveRvalues(n,topAst->u.fn.l ,0);
 		l->prevQuad = linkQuads(q,n);
+		l->prevQuad = linkQuads(l->prevQuad, currentBlock->q);
 		currentBlock->q = l;
 		topAst->q = l;
 	}else if (topAst->nodetype == SIMPLESTMT){
@@ -1811,6 +1823,7 @@ emitQuads(struct astnode * compoundAst)
 		topBlock= topBlock->prev;
 		topBlock->next = temp;
 	}
+	struct basicBlock * topBlock2 = topBlock;
 	while(topBlock){
 		printf("BB%d: \n", topBlock->num, topBlock->q);
 		if (topBlock->q)
@@ -1909,7 +1922,7 @@ mySizeOf(struct astnode * a)
 	if(a->nodetype == SYMBOL){
 		// just do normal size;
 		NUMS v;
-		v.i = size(a->u.symbol->type, 0);
+		v.i = size(a->u.symbol->type, 1);
 		s = newNum(CONST_INT_OP,0,v);
 	}else if (a->nodetype == TYPE) {
 		NUMS v;
@@ -2030,7 +2043,7 @@ createNewBlock(struct basicBlock * currentBlock)
 void 
 addReturn()
 {
-	if (currentBlock->q->opcode != RET){
+	if (!currentBlock->q || currentBlock->q->opcode != RET){
 		struct quad * q = malloc(sizeof(struct quad));
 		q->opcode = RET;
 		q->left = NULL;
@@ -2045,7 +2058,7 @@ addBreakContinue(struct basicBlock * i , struct basicBlock * c)
 {
 	// loop basicBlocks until you get to c
 	struct quad *q;
-	while(i !=c){
+	while(i !=c && i && c){
 		// loop through each quad.
 		q = i->q;
 		while(q){
@@ -2068,6 +2081,7 @@ void emitTargetCode()
 		// I need to figure out how to do this only once for a file...
 	FILE *target_file = fopen("target.s", "w");
 	fprintf(target_file,".file \"%s\"\n", file_name);
+	fprintf(target_file, ".text\n");
 	buildPreamble(target_file);	
 	// now I need to convert quads into targetcode
 	convertQuads(target_file);
@@ -2077,7 +2091,7 @@ void
 buildPreamble(FILE * f)
 {
 	char * fnDecls[100][100];
-	char * strings[100][100];
+ 	char * strings[100][100];
 	int loc = 0;
 	int locS = 0;
 	int lco = 0;
@@ -2092,35 +2106,45 @@ buildPreamble(FILE * f)
 				loc++;
 				sprintf(fnDecls[loc], ".type %s, @function\n", syms->name);
 				loc++;
-			}else if (syms->type && getTypeSym(syms)!=CHR){
+			}else if (syms->type){
 				// technically should havec a different align function, but for the types im using it is the same as size
 				fprintf(f,".comm  %s, %d, %d\n", syms->name, size(syms->type, 1), size(syms->type,1));	
-			}else if (syms->type && getTypeSym(syms)==CHR){
-				// First need to make sure that this was assigned something, if it was not just skip it.
-				// Need to save it to strings
-				char buff[1000];
-				int resp = getStringValue(syms,buff,lco);	
-				if (resp) { 
-					sprintf(strings[locS++],".LC%d:\n", lco);
-					sprintf(strings[locS++],"\t .string \"%s\"\n", buff);
-					sprintf(strings[locS++],"\t .data\n");
-					sprintf(strings[locS++],"\t .align 4\n");
-					sprintf(strings[locS++],"\t .type %s,@object\n", syms->name);
-					sprintf(strings[locS++],"\t .size %s, %d\n",syms->name,strlen(buff));
-					sprintf(strings[locS++],"%s:\n\t.long .LC%d\n", syms->name, locS);
-					locS++;
-					lco++
-				}
-				
-			}	
+			}
 			syms = syms->previous;
 		}
 		// get the rest of the strings here..
-		buildLocalStrings(strings,lco,locS);
+		struct basicBlock * top = currentBlock;
+		struct basicBlock * temp = top;
+		static int nums[2];
+		while(top->prev){
+			temp = top;
+			top= top->prev;
+			top->next = temp;
+		}
+		while(top){
+			if (top->q){
+				struct quad * q= top->q;
+				while(q) { 
+					if (q->left && q->left->nodetype == CONST_STR_OP){
+						sprintf(strings[locS++],".LC%d:\n", lco);
+						sprintf(strings[locS++],"\t .string \"%s\"\n", q->left->u.ident.name);
+						q->left->u.ident.num = lco;
+						lco++;
+					}else if(q->right && q->right->nodetype == CONST_STR_OP){
+						sprintf(strings[locS++],".LC%d:\n", lco);
+						sprintf(strings[locS++],"\t .string \"%s\"\n", q->right->u.ident.name);
+						q->right->u.ident.num = lco;
+						lco++;
+					}
+					q = q->prevQuad;
+				}
+			}
+			top = top->next;
+		}
 		// iterate through the fndecls: 
-		fputs(".rodata\n", f);
+		fputs(".section .rodata\n", f);
 		for (int i =0; i<=locS; i++){
-			fprintf(f,strings[i]);
+			fputs(strings[i],f);
 		}
        		fputs(".text\n", f);
 		for(int i = 0; i<=loc; i++){
@@ -2151,20 +2175,21 @@ convertQuads(FILE * f)
 	}
 	int offset = setOffset(currentScope, topBlock);
 	if (offset>0)
-		fprintf(f, "\tsubl $%d, %%ebp\n",offset);
+		fprintf(f, "\tsubl $%d, %%esp\n",offset);
 	while(topBlock){
 		if (topBlock->q){
 			fprintf(f,"BB%d:\n",topBlock->num);
+			//printQuad(topBlock->q, 0); 
 			conversion(topBlock->q, f);	
 		}
 		topBlock = topBlock->next;
 	}
 }
 
+
 void
 conversion(struct quad * q, FILE *f)
 {
-	// TODO: Fix up this function after changing everything to offsets...
 	char buff[100];
 	char buff1[100];
 	char buff2[100];
@@ -2174,7 +2199,22 @@ conversion(struct quad * q, FILE *f)
 		switch(q->opcode) 
 			{
 				case '*':
-					basicArithmetic(f, q);	
+					resolveSource(q->left, buff1,f);	
+					if(q->right->nodetype == SYMBOL || q->right->nodetype == TMP){
+						// move into %eax
+						resolveLocal(q->right,buff);
+						char o[2];
+						resolveType(q->right,o);
+						fprintf(f, "\tmov%s %s, %%eax\n",o,buff);
+						sprintf(buff2, "%%eax");
+					}else{
+						resolveDest(q->right, buff2,f);
+					}
+					resolveType(q->left,t);
+					fprintf(f,"\timul%s %s,%s\n",t,buff1,buff2);
+					resolveDest(q->target, buff1,f);
+					fprintf(f, "\tmov%s %s,%s\n", t, buff2,buff1);
+			
 				break;
 				case '/':
 					// mov the dividend ( q->left) to %eax
@@ -2185,9 +2225,10 @@ conversion(struct quad * q, FILE *f)
 					resolveSource(q->right, buff2,f);
 					fprintf(f, "\tmov%s %s, %%ecx\n", t, buff2);
 					// do div on %ecx
+					fprintf(f,"\tmovl $0, %%edx\n");
 					fprintf(f, "\tdiv %%ecx\n");
 					// move the result (%eax) into the target location
-					resolveDest(q->target, buff1);
+					resolveDest(q->target, buff1,f);
 					fprintf(f, "\tmov%s %%eax, %s\n",t,buff1);
 				break;
 				case '%':
@@ -2199,9 +2240,10 @@ conversion(struct quad * q, FILE *f)
 					resolveSource(q->right, buff2,f);
 					fprintf(f, "\tmov%s %s, %%ecx\n", t, buff2);
 					// do div on %ecx
+					fprintf(f,"\tmovl $0, %%edx\n");
 					fprintf(f, "\tdiv %%ecx\n");
 					// move the result (%edx) into the target location
-					resolveDest(q->target, buff1);
+					resolveDest(q->target, buff1,f);
 					fprintf(f, "\tmov%s %%edx, %s\n",t,buff1);
 				break;
 				case '+':
@@ -2228,47 +2270,50 @@ conversion(struct quad * q, FILE *f)
 				case LOAD:
 					// Both load and store and just modified movl commands.
 					resolveSource(q->left,buff1,f);
-					resolveDest(q->target,buff2);
+					resolveDest(q->target,buff2,f);
 					resolveType(q->left,t);
 					fprintf(f,"\tmov%s (%s), %%edx\n", t, buff1);
 					fprintf(f,"\tmov%s %%edx, %s\n", t, buff2);
 				break;	
 				case STORE:
 					resolveSource(q->left,buff1,f);
-					resolveSource(q->right,buff2,f);
+					resolveDest(q->right,buff2,f);
 					resolveType(q->left,t);
 					fprintf(f,"\tmov%s %s, %%edx\n", t, buff1);
-					fprintf(f,"\tmov%s %%edx, (%s)\n", t,buff2);
+					fprintf(f,"\tmov%s %s, %%eax\n", t, buff2);
+					fprintf(f,"\tmov%s %%edx, (%%eax)\n", t);
 				break;
 				case ADDR:
 					resolveSource(q->left, buff1,f);
-					resolveDest(q->target,buff2);
+					resolveDest(q->target,buff2,f);
 					resolveType(q->left,t);
 					fprintf(f,"\tlea%s %s, %s\n", t,buff1,buff2);
 				break;
 				case LEA:
-					resolveSource(q->left, buff1,f);
-					resolveDest(q->target,buff2);
+					resolveDest(q->left, buff1,f);
 					resolveType(q->left,t);
-					fprintf(f, "\tlea%s %s, %s\n",t, buff1,buff2);
+					fprintf(f, "\tlea%s %s, %%edx\n",t, buff1);
+					resolveDest(q->target,buff2,f);
+					fprintf(f, "\tmov%s %%edx,%s\n",t,buff2);
+				
 				break;
 				case CMP:
 					resolveSource(q->left,buff1,f);
-					resolveDest(q->target,buff2);
+					resolveDest(q->right,buff2,f);
 					fprintf(f,"\tcmp %s, %s\n",buff1, buff2);
 				break;
 				case '<':
 					//BRLT
 					resolveQ(q->left, buff1, q->opcode);
 					resolveQ(q->right, buff2, q->opcode);
-					fprintf(f,"\tjl %s\n", buff1);
+					fprintf(f,"\tjg %s\n", buff1);
 					fprintf(f,"\tjmp %s\n", buff2);
 				break;
 				case '>':
 					//BRGT
 					resolveQ(q->left, buff1, q->opcode);
 					resolveQ(q->right, buff2, q->opcode);
-					fprintf(f,"\tjg %s\n", buff1);
+					fprintf(f,"\tjl %s\n", buff1);
 					fprintf(f,"\tjmp %s\n", buff2);
 				break;
 				case BR:
@@ -2288,11 +2333,12 @@ conversion(struct quad * q, FILE *f)
 					fprintf(f, "\tjmp %s\n",buff2);
 				break;
 				case PLUSPLUS:
-					resolveDest(q->left,buff1);
-					fprintf(f,"\tinc %s\n", buff1);
+					resolveDest(q->left,buff1,f);
+					resolveType(q->left,t);
+					fprintf(f,"\tinc%s %s\n",t, buff1);
 				break;
 				case MINUSMINUS:
-					resolveDest(q->left,buff1);
+					resolveDest(q->left,buff1,f);
 					fprintf(f,"\tdec %s\n", buff1);
 				break;
 				case ARG:
@@ -2305,35 +2351,40 @@ conversion(struct quad * q, FILE *f)
 					fprintf(f,"\tcall %s\n",buff1);	
 					// have to add back to the esp here
 					fprintf(f,"\taddl $%d, %%esp\n",q->right->u.num.val.i*4);
+					resolveDest(q->target,buff2,f);
+					fprintf(f,"\tmovl %%eax, %s\n",buff2);
 				break;
 				case '=':
 					resolveSource(q->left,buff1,f);
-					resolveDest(q->target,buff2);
+					resolveDest(q->target,buff2,f);
 					resolveType(q->left,t);
 					fprintf(f,"\tmov%s %s,%s\n",t,buff1,buff2);					
 				break;
 				case MOV:
 					resolveSource(q->left,buff1,f);
-					resolveDest(q->target,buff2);
+					resolveDest(q->target,buff2,f);
 					resolveType(q->left,t);
 					fprintf(f,"\tmov%s %s,%s\n",t,buff1,buff2);
-				break;	
+				break;
 				case RET:
 					if (q->left) {
 						resolveType(q->left, buff);
  						resolveSource(q->left, buff1, f); 
 						fprintf(f,"\tmov%s %s, %%eax\n",buff, buff1);
 					}
-					fprintf(f,"\tret\n");		
+					fprintf(f, "\txor %%edx, %%edx\n");
+					fprintf(f, "\txor %%eax, %%eax\n");
 					fprintf(f,"\tleave\n");
+					fprintf(f,"\tret\n");		
 					fprintf(f,"\t.size %s,.-%s\n", currentScope->last->name, currentScope->last->name);
+				
 				break;
 				case CONQUAD:
 					printf("THIS should not be here\n");
 				break;
 
 
-			}
+			} 
 		q = q->prevQuad;
 	}
 }
@@ -2370,11 +2421,23 @@ void
 resolveLocal(struct astnode *a, char * buff)
 {
 	int offset = 0;
-	if (a->nodetype == TMP)
+	// have to do that stupid fucking shit from before
+	int op;
+	if (a->q){
+		op = a->q->opcode;
+	}else{
+		op = MOV;
+	}
+	if(op != MOV && op !=LEA && op != LOAD && op!='<' && op!='>'&& op!=BREQ && a->q && a->q->target->nodetype) {
+	       	offset = a->q->target->u.tmp.offset;
+	}else if (a->nodetype == TMP){
 		offset = a->u.tmp.offset;
-	else if (a->nodetype == SYMBOL)
+		if(offset == 0) { 
+			offset = a->q->target->u.tmp.offset;
+		}
+	}else if (a->nodetype == SYMBOL)
 		offset = a->u.symbol->offset;
-	sprintf(buff, "-%d(%%esp)", offset);
+	sprintf(buff, "-%d(%%ebp)", offset);
 }
 
 void
@@ -2385,15 +2448,20 @@ resolveSource(struct astnode * a, char * buff, FILE *f)
 	// 		2. Global Var
 	// 		3. Local Var (Can be TMP or SYMBOL)
 	//		4. ARRAY 
+	char o[2];
+	resolveType(a,o);
 	if (a->nodetype == CONST_INT_OP){
-		sprintf(buff, "$%d", a->u.num.val.i);
+		fprintf(f,"\tmov%s $%d, %%edx\n",o, a->u.num.val.i);
+		sprintf(buff, "%%edx");
 	}else if(a->nodetype == CONST_CHAR_OP){
-		sprintf(buff,"$%d", a->u.ident.name);
+		fprintf(f,"\tmov%s $%d, %%edx\n",o, a->u.ident.name);
+		sprintf(buff,"%%edx");
+	}else if(a->nodetype == CONST_STR_OP){
+		fprintf(f,"\tlea%s .LC%d, %%edx\n", o, a->u.ident.num);
+		sprintf(buff, "%%edx");
 	}else if(a->nodetype == SYMBOL && a->u.symbol->definedScope->scopeType == GLOBALSCOPE) {
 		//GLOBAL VAR
-		char o[2];
 		sprintf(buff, "%s", a->u.symbol->name);
-		resolveType(a,o);
 		fprintf(f, "\tmov%s %s, %%edx\n",o,buff);
 		sprintf(buff, "%%edx");
 	}else if (a->nodetype == SYMBOL || a->nodetype == TMP){
@@ -2410,7 +2478,7 @@ resolveSource(struct astnode * a, char * buff, FILE *f)
 }
 
 void
-resolveDest(struct astnode * a, char * buff)
+resolveDest(struct astnode * a, char * buff, FILE *f)
 {
 	if(a->nodetype == SYMBOL && a->u.symbol->definedScope->scopeType == GLOBALSCOPE) {
 		//GLOBAL VAR
@@ -2418,6 +2486,25 @@ resolveDest(struct astnode * a, char * buff)
 	}else if (a->nodetype == SYMBOL || a->nodetype == TMP){
 		//LOCAL VAR
 		resolveLocal(a,buff);
+		/*char o[2];
+		resolveType(a,o);
+		fprintf(f, "\tmov%s %s, %%eax\n",o,buff);
+		sprintf(buff, "%%eax");*/
+	}else if (a->nodetype == CONST_INT_OP){
+		char o[2];
+		resolveType(a,o);
+		fprintf(f, "\tmov%s $%d, %%eax\n", o, a->u.num.val.i);
+		sprintf(buff, "%%eax");
+	}else if(a->nodetype == CONST_CHAR_OP){
+		char o[2];
+		resolveType(a,o);
+		fprintf(f, "\tmov%s $%d, %%eax\n", o, a->u.ident.name);
+		sprintf(buff,"%%eax");
+	}else if(a->nodetype == CONST_STR_OP){
+		char o[2];
+		resolveType(a,o);
+		fprintf(f,"\tlea%s .LC%d, %%edx\n", o, a->u.ident.num);
+		sprintf(buff, "%%edx");
 	}
 
 
@@ -2434,13 +2521,13 @@ basicArithmetic(FILE *f, struct quad * q)
 	resolveOp(q->opcode, o);
 	resolveType(q->target,j);
 	resolveType(q->left, t);
-	resolveSource(q->left, buff1, f);
-	resolveDest(q->target, buff2);
+	resolveDest(q->left, buff1, f);
+	resolveSource(q->right, buff2, f);
 	// Two steps:	1. Mov into the correct place
 	// 		2. Do the actual arithmetic operation
-	fprintf(f, "\tmov%s %s, %s\n",j, buff1, buff2);
-	resolveSource(q->right, buff1, f);
 	fprintf(f,  "\t%s%s %s, %s\n",o,t,buff1,buff2);
+	resolveDest(q->target,buff1,f);
+	fprintf(f,"\tmov%s %s,%s\n",t, buff2, buff1);
 }
 
 void 
@@ -2452,7 +2539,7 @@ resolveOp(int opcode, char * op)
 
 		break;
 		case '*': 
-			sprintf(op, "mul");
+			sprintf(op, "imul");
 		break;
 		case '+':
 			sprintf(op, "add");
@@ -2516,57 +2603,5 @@ setOffset(struct scope * s, struct basicBlock * top)
 	return offset;
 
 }
-int
-getStringValue(struct symbol * symb, char * buff, int lnum)
-{
-	int resp = 0;
-	struct basicBlock * top = currentBlock;
-	struct basicBlock * temp = top;
-	while(top->prev){
-		temp = top;
-		top= top->prev;
-		top->next = temp;
-	}
-	while(top){
-		if (top->q){
-			struct quad * q= top->q;
-			while(q) { 
-				if (q->target && q->target->nodetype == SYMBOL && q->target->u.symbol == symb){
-					sprintf(buff, q->left->u.ident.name);
-					q->left->u.ident.num = lnum;
-					resp = 1;
-					goto end;
-				}
-				q = q->prevQuad;
-			}
-		}
-		top = top->next;
-	}
-	end:
-		return resp;
-}
 
-void
-buildLocalStrings(char * strings,int lco, int locS)
-{
-	struct basicBlock * top = currentBlock;
-	struct basicBlock * temp = top;
-	while(top->prev){
-		temp = top;
-		top= top->prev;
-		top->next = temp;
-	}
-	while(top){
-		if (top->q){
-			struct quad * q= top->q;
-			while(q) { 
-				if (q->left && q->left->nodetype == CONST_STR_OP){
-					printf("found local const str_op)
-				}
-				q = q->prevQuad;
-			}
-		}
-		top = top->next;
-	}
-}
 
